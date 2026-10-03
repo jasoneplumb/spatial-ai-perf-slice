@@ -218,6 +218,70 @@ def main():
         if i == 0:
             first_pred = pred
 
+    # Run a separate instrumented pass so stage events do not contaminate the
+    # aggregate smoke-test latency above.
+    stage_samples = {}
+    stage_names = [type(module).__name__ for module in model.module_list] + ["post_processing"]
+    for name in stage_names:
+        stage_samples[name] = []
+
+    for _ in range(args.iterations):
+        batch = clone_batch(base_batch)
+        events = []
+        with torch.inference_mode():
+            for module in model.module_list:
+                start = torch.cuda.Event(enable_timing=True)
+                stop = torch.cuda.Event(enable_timing=True)
+                start.record()
+                batch = module(batch)
+                stop.record()
+                events.append((type(module).__name__, start, stop))
+
+            start = torch.cuda.Event(enable_timing=True)
+            stop = torch.cuda.Event(enable_timing=True)
+            start.record()
+            model.post_processing(batch)
+            stop.record()
+            events.append(("post_processing", start, stop))
+
+        torch.cuda.synchronize()
+        for name, start, stop in events:
+            stage_samples[name].append(float(start.elapsed_time(stop)))
+
+    stage_latency = {}
+    for name, values in stage_samples.items():
+        stage_latency[name] = {
+            "median": statistics.median(values),
+            "mean": statistics.mean(values),
+            "min": min(values),
+            "max": max(values),
+        }
+
+    # Capture one operator-level profile separately from both timing passes.
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    activities = [
+        torch.profiler.ProfilerActivity.CPU,
+        torch.profiler.ProfilerActivity.CUDA,
+    ]
+    with torch.profiler.profile(
+        activities=activities,
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=False,
+    ) as prof:
+        batch = clone_batch(base_batch)
+        with torch.inference_mode():
+            model(batch)
+        torch.cuda.synchronize()
+
+    operator_path = out.parent / "operators.txt"
+    trace_path = out.parent / "trace.json"
+    operator_path.write_text(
+        prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=100) + "\n"
+    )
+    prof.export_chrome_trace(str(trace_path))
+
     detections = 0
     if first_pred and "pred_boxes" in first_pred[0]:
         detections = int(first_pred[0]["pred_boxes"].shape[0])
@@ -245,13 +309,16 @@ def main():
             "p95": percentile(times, 0.95),
             "max": max(times),
         },
+        "stage_latency_ms": stage_latency,
+        "profile_artifacts": {
+            "operators": str(operator_path),
+            "trace": str(trace_path),
+        },
         "peak_allocated_vram_gib": round(
             torch.cuda.max_memory_allocated() / (1024 ** 3), 3
         ),
     }
 
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 
