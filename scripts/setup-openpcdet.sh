@@ -31,7 +31,7 @@ git pull --ff-only
 OPENPCDET_COMMIT="$(git rev-parse HEAD)"
 echo "$OPENPCDET_COMMIT" > "$ROOT/third_party/OPENPCDET_COMMIT"
 
-python -m pip install -e .
+python -m pip install --no-build-isolation -e .
 
 cd "$ROOT"
 python - <<'PY'
