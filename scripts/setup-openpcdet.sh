@@ -29,7 +29,23 @@ OPENPCDET_COMMIT="233f849829b6ac19afb8af8837a0246890908755"
 cd "$PCDET"
 git fetch origin "$OPENPCDET_COMMIT"
 git checkout --detach "$OPENPCDET_COMMIT"
+git reset --hard "$OPENPCDET_COMMIT"
 echo "$OPENPCDET_COMMIT" > "$ROOT/third_party/OPENPCDET_COMMIT"
+
+# OpenPCDet 233f849 names this spconv 2.x argument max_num_points, while
+# spconv 2.3.8 exposes it as max_num_points_per_voxel. This is an API-name
+# compatibility patch only; the value and voxelization semantics are unchanged.
+python - <<'PY'
+from pathlib import Path
+p = Path("pcdet/datasets/processor/data_processor.py")
+s = p.read_text()
+old = "max_num_points=max_num_points_per_voxel,"
+new = "max_num_points_per_voxel=max_num_points_per_voxel,"
+if old in s:
+    p.write_text(s.replace(old, new, 1))
+elif new not in s:
+    raise SystemExit("Unexpected Point2VoxelCPU3d constructor form; refusing to patch")
+PY
 
 python -m pip install --no-build-isolation -e .
 
