@@ -126,6 +126,7 @@ def main():
     sys.modules.setdefault("pcdet.datasets", datasets_pkg)
 
     from pcdet.models import build_network, load_data_to_gpu
+    from pcdet.utils.spconv_utils import spconv
 
     cfg = load_openpcdet_cfg(root, cfg_path)
 
@@ -257,7 +258,67 @@ def main():
             "max": max(values),
         }
 
-    # Capture one operator-level profile separately from both timing passes.
+    # Decompose the dominant sparse backbone without modifying OpenPCDet.
+    # MeanVFE first creates voxel_features, then we replay the exact
+    # VoxelResBackBone8x submodules and time each one independently.
+    vfe_module = next(
+        module for module in model.module_list if type(module).__name__ == "MeanVFE"
+    )
+    sparse_backbone = next(
+        module
+        for module in model.module_list
+        if type(module).__name__ == "VoxelResBackBone8x"
+    )
+    sparse_submodules = [
+        ("conv_input", sparse_backbone.conv_input),
+        ("conv1", sparse_backbone.conv1),
+        ("conv2", sparse_backbone.conv2),
+        ("conv3", sparse_backbone.conv3),
+        ("conv4", sparse_backbone.conv4),
+        ("conv_out", sparse_backbone.conv_out),
+    ]
+    sparse_samples = {name: [] for name, _ in sparse_submodules}
+    sparse_active_sites = {}
+
+    for iteration in range(args.iterations):
+        batch = clone_batch(base_batch)
+        with torch.inference_mode():
+            batch = vfe_module(batch)
+            input_sp_tensor = spconv.SparseConvTensor(
+                features=batch["voxel_features"],
+                indices=batch["voxel_coords"].int(),
+                spatial_shape=sparse_backbone.sparse_shape,
+                batch_size=batch["batch_size"],
+            )
+            x = input_sp_tensor
+            events = []
+            for name, module in sparse_submodules:
+                start = torch.cuda.Event(enable_timing=True)
+                stop = torch.cuda.Event(enable_timing=True)
+                start.record()
+                x = module(x)
+                stop.record()
+                events.append((name, start, stop))
+                if iteration == 0:
+                    sparse_active_sites[name] = {
+                        "active_sites": int(x.features.shape[0]),
+                        "channels": int(x.features.shape[1]),
+                    }
+
+        torch.cuda.synchronize()
+        for name, start, stop in events:
+            sparse_samples[name].append(float(start.elapsed_time(stop)))
+
+    sparse_substage_latency = {}
+    for name, values in sparse_samples.items():
+        sparse_substage_latency[name] = {
+            "median": statistics.median(values),
+            "mean": statistics.mean(values),
+            "min": min(values),
+            "max": max(values),
+        }
+
+    # Capture one operator-level profile separately from all timing passes.
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     activities = [
@@ -310,6 +371,8 @@ def main():
             "max": max(times),
         },
         "stage_latency_ms": stage_latency,
+        "sparse_backbone_substage_latency_ms": sparse_substage_latency,
+        "sparse_backbone_active_sites": sparse_active_sites,
         "profile_artifacts": {
             "operators": str(operator_path),
             "trace": str(trace_path),
