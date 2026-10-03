@@ -10,12 +10,13 @@ No vendor-specific hardware, SDK, or confidential material belongs in this repos
 
 ## Status
 
-The development environment is pinned and the OpenPCDet reference build is working. The next two milestones are deliberately separate:
+**Milestone `v0.1.0-structural` is complete.** The pinned Waymo CenterPoint graph runs locally and can be measured from whole-model latency down through architectural stages, sparse-backbone substages, individual residual convolutions, and CUDA operators.
 
-1. **Structural smoke test** — prove the exact Waymo CenterPoint graph executes on the local GPU using deterministic synthetic LiDAR-like points and random weights.
-2. **Reference baseline** — freeze one licensed Waymo frame, run a compatible trained checkpoint, save the reference prediction, and measure the same model call repeatedly.
+See [CHANGELOG.md](CHANGELOG.md) and [docs/MILESTONE-0.1.md](docs/MILESTONE-0.1.md) for the reference point, measurements, limitations, and why this milestone matters.
 
-The smoke test is not a performance baseline.
+The next milestone is the **representative reference baseline**: first repeat the structural profile with one real Waymo point cloud, then add a compatible trained checkpoint and frozen reference prediction.
+
+The structural smoke measurements are not a performance baseline.
 
 OpenPCDet does **not** distribute its pretrained Waymo models because of the Waymo Dataset License Agreement. This repository therefore does not fetch an unofficial checkpoint. The reference baseline requires a checkpoint that the user is entitled to use.
 
@@ -41,7 +42,7 @@ bash ./scripts/setup-wsl.sh
 bash ./scripts/setup-openpcdet.sh
 ```
 
-## Current next step: structural smoke test
+## Structural smoke test
 
 ```bash
 bash ./scripts/smoke-centerpoint.sh
