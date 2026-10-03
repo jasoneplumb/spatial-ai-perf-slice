@@ -163,7 +163,7 @@ def main():
         vsize_xyz=voxel_size.tolist(),
         coors_range_xyz=point_cloud_range.tolist(),
         num_point_features=5,
-        max_num_points=int(voxel_cfg.MAX_POINTS_PER_VOXEL),
+        max_num_points_per_voxel=int(voxel_cfg.MAX_POINTS_PER_VOXEL),
         max_num_voxels=int(voxel_cfg.MAX_NUMBER_OF_VOXELS["test"]),
     )
     tv_voxels, tv_coords, tv_num_points = voxelizer.point_to_voxel(tv.from_numpy(points))
