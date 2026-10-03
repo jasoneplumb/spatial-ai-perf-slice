@@ -1,0 +1,6 @@
+third_party/
+artifacts/
+results/
+__pycache__/
+*.pyc
+.venv/
