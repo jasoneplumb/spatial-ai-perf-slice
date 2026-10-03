@@ -11,6 +11,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import torch
 
 
@@ -72,21 +73,34 @@ def main():
     cfg_path = Path(args.cfg).resolve()
     sys.path.insert(0, str(root))
 
-    from pcdet.datasets import DatasetTemplate
+    from types import ModuleType, SimpleNamespace
+
+    datasets_pkg = ModuleType("pcdet.datasets")
+    datasets_pkg.__path__ = [str(root / "pcdet" / "datasets")]
+    datasets_pkg.__package__ = "pcdet.datasets"
+    sys.modules.setdefault("pcdet.datasets", datasets_pkg)
+
     from pcdet.models import build_network, load_data_to_gpu
     from pcdet.utils import common_utils
 
     cfg = load_openpcdet_cfg(root, cfg_path)
     logger = common_utils.create_logger()
 
-    # The detector needs geometry/feature metadata, but replaying an already
-    # frozen batch does not require opening the Waymo dataset again.
-    dataset = DatasetTemplate(
-        dataset_cfg=cfg.DATA_CONFIG,
+    point_cloud_range = np.asarray(cfg.DATA_CONFIG.POINT_CLOUD_RANGE, dtype=np.float32)
+    voxel_cfg = next(
+        x for x in cfg.DATA_CONFIG.DATA_PROCESSOR if x.NAME == "transform_points_to_voxels"
+    )
+    voxel_size = np.asarray(voxel_cfg.VOXEL_SIZE, dtype=np.float32)
+    grid_size = np.round(
+        (point_cloud_range[3:6] - point_cloud_range[0:3]) / voxel_size
+    ).astype(np.int64)
+    dataset = SimpleNamespace(
         class_names=cfg.CLASS_NAMES,
-        training=False,
-        root_path=Path("."),
-        logger=logger,
+        point_cloud_range=point_cloud_range,
+        voxel_size=voxel_size,
+        grid_size=grid_size,
+        depth_downsample_factor=None,
+        point_feature_encoder=SimpleNamespace(num_point_features=5),
     )
     model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=dataset)
     model.load_params_from_file(
