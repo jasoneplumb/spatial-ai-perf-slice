@@ -43,20 +43,24 @@ def main():
     cfg_path = Path(args.cfg).resolve()
     sys.path.insert(0, str(root))
 
-    from pcdet.datasets import build_dataloader
+    from types import ModuleType
+
+    datasets_pkg = ModuleType("pcdet.datasets")
+    datasets_pkg.__path__ = [str(root / "pcdet" / "datasets")]
+    datasets_pkg.__package__ = "pcdet.datasets"
+    sys.modules.setdefault("pcdet.datasets", datasets_pkg)
+
+    from pcdet.datasets.waymo.waymo_dataset import WaymoDataset
     from pcdet.utils import common_utils
 
     cfg = load_openpcdet_cfg(root, cfg_path)
     logger = common_utils.create_logger()
 
-    dataset, _, _ = build_dataloader(
+    dataset = WaymoDataset(
         dataset_cfg=cfg.DATA_CONFIG,
         class_names=cfg.CLASS_NAMES,
-        batch_size=1,
-        dist=False,
-        workers=0,
-        logger=logger,
         training=False,
+        logger=logger,
     )
 
     sample = dataset[args.index]
