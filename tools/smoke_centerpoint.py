@@ -111,29 +111,64 @@ def main():
     cfg_path = Path(args.cfg).resolve()
     sys.path.insert(0, str(root))
 
-    from pcdet.datasets import DatasetTemplate
+    from types import SimpleNamespace
+    import cumm.tensorview as tv
+    from spconv.utils import Point2VoxelCPU3d
     from pcdet.models import build_network, load_data_to_gpu
-    from pcdet.utils import common_utils
 
     cfg = load_openpcdet_cfg(root, cfg_path)
-    logger = common_utils.create_logger()
 
-    dataset = DatasetTemplate(
-        dataset_cfg=cfg.DATA_CONFIG,
+    point_cloud_range = np.asarray(cfg.DATA_CONFIG.POINT_CLOUD_RANGE, dtype=np.float32)
+    voxel_cfg = next(
+        x for x in cfg.DATA_CONFIG.DATA_PROCESSOR if x.NAME == "transform_points_to_voxels"
+    )
+    voxel_size = np.asarray(voxel_cfg.VOXEL_SIZE, dtype=np.float32)
+    grid_size = np.round(
+        (point_cloud_range[3:6] - point_cloud_range[0:3]) / voxel_size
+    ).astype(np.int64)
+
+    # Avoid importing pcdet.datasets here: its package __init__ imports optional
+    # dataset backends (NuScenes/Argo2/etc.) irrelevant to this Waymo graph.
+    dataset = SimpleNamespace(
         class_names=cfg.CLASS_NAMES,
-        training=False,
-        root_path=Path("."),
-        logger=logger,
+        point_cloud_range=point_cloud_range,
+        voxel_size=voxel_size,
+        grid_size=grid_size,
+        depth_downsample_factor=None,
+        point_feature_encoder=SimpleNamespace(num_point_features=5),
     )
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     points = synthetic_points(args.points, args.seed)
-    prepared = dataset.prepare_data(
-        {"points": points, "frame_id": np.array("synthetic-smoke")}
+    mask = np.all(
+        (points[:, :3] >= point_cloud_range[:3])
+        & (points[:, :3] < point_cloud_range[3:6]),
+        axis=1,
     )
-    cpu_batch = dataset.collate_batch([prepared])
-    voxel_count = int(cpu_batch["voxels"].shape[0])
+    points = points[mask].astype(np.float32, copy=False)
+
+    voxelizer = Point2VoxelCPU3d(
+        vsize_xyz=voxel_size.tolist(),
+        coors_range_xyz=point_cloud_range.tolist(),
+        num_point_features=5,
+        max_num_points=int(voxel_cfg.MAX_POINTS_PER_VOXEL),
+        max_num_voxels=int(voxel_cfg.MAX_NUMBER_OF_VOXELS["test"]),
+    )
+    tv_voxels, tv_coords, tv_num_points = voxelizer.point_to_voxel(tv.from_numpy(points))
+    voxels = tv_voxels.numpy().copy()
+    coords = tv_coords.numpy().copy()
+    num_points = tv_num_points.numpy().copy()
+    voxel_count = int(voxels.shape[0])
+
+    # OpenPCDet collate_batch prepends the batch index to [z,y,x] voxel coords.
+    voxel_coords = np.pad(coords, ((0, 0), (1, 0)), constant_values=0)
+    cpu_batch = {
+        "voxels": voxels,
+        "voxel_coords": voxel_coords,
+        "voxel_num_points": num_points,
+        "batch_size": 1,
+    }
 
     model = build_network(
         model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=dataset
