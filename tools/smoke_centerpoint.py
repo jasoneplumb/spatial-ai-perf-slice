@@ -111,9 +111,20 @@ def main():
     cfg_path = Path(args.cfg).resolve()
     sys.path.insert(0, str(root))
 
-    from types import SimpleNamespace
+    from types import ModuleType, SimpleNamespace
     import cumm.tensorview as tv
     from spconv.utils import Point2VoxelCPU3d
+
+    # OpenPCDet eagerly imports every dataset backend when pcdet.datasets is
+    # initialized. Some detector modules import dataset submodules even though
+    # CenterPoint itself does not need those optional backends. Register a
+    # namespace package so those submodules remain importable without executing
+    # pcdet/datasets/__init__.py.
+    datasets_pkg = ModuleType("pcdet.datasets")
+    datasets_pkg.__path__ = [str(root / "pcdet" / "datasets")]
+    datasets_pkg.__package__ = "pcdet.datasets"
+    sys.modules.setdefault("pcdet.datasets", datasets_pkg)
+
     from pcdet.models import build_network, load_data_to_gpu
 
     cfg = load_openpcdet_cfg(root, cfg_path)
