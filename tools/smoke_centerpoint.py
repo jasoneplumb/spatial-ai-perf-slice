@@ -98,6 +98,14 @@ def main():
         default="third_party/OpenPCDet/tools/cfgs/waymo_models/centerpoint.yaml",
     )
     ap.add_argument("--points", type=int, default=80000)
+    ap.add_argument(
+        "--points-npy",
+        help=(
+            "Optional real point cloud. Accepts N x 5 model-ready "
+            "[x,y,z,intensity,elongation] or OpenPCDet Waymo N x 6 "
+            "[x,y,z,intensity,elongation,NLZ_flag]."
+        ),
+    )
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--warmup", type=int, default=2)
     ap.add_argument("--iterations", type=int, default=5)
@@ -152,13 +160,40 @@ def main():
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    points = synthetic_points(args.points, args.seed)
+
+    if args.points_npy:
+        points_path = Path(args.points_npy).resolve()
+        loaded = np.load(points_path)
+        if loaded.ndim != 2 or loaded.shape[1] not in (5, 6):
+            raise SystemExit(
+                f"--points-npy must contain N x 5 or N x 6 float data; got {loaded.shape}"
+            )
+        loaded = loaded.astype(np.float32, copy=False)
+        if loaded.shape[1] == 6:
+            # OpenPCDet's processed Waymo files store NLZ in column 5. Its
+            # get_lidar() path keeps NLZ == -1 and tanh-normalizes intensity.
+            loaded = loaded[loaded[:, 5] == -1]
+            points = loaded[:, :5].copy()
+            points[:, 3] = np.tanh(points[:, 3])
+            input_description = "OpenPCDet-processed Waymo N x 6 point cloud"
+        else:
+            points = loaded
+            input_description = "external model-ready N x 5 point cloud"
+        source_point_count = int(points.shape[0])
+        input_source = str(points_path)
+    else:
+        points = synthetic_points(args.points, args.seed)
+        source_point_count = int(points.shape[0])
+        input_description = "deterministic synthetic lidar-like points"
+        input_source = None
+
     mask = np.all(
         (points[:, :3] >= point_cloud_range[:3])
         & (points[:, :3] < point_cloud_range[3:6]),
         axis=1,
     )
     points = points[mask].astype(np.float32, copy=False)
+    in_range_point_count = int(points.shape[0])
 
     voxelizer = Point2VoxelCPU3d(
         vsize_xyz=voxel_size.tolist(),
@@ -441,7 +476,10 @@ def main():
         "valid_for_baseline": False,
         "purpose": "structural smoke test only",
         "weights": "randomly initialized",
-        "input": "deterministic synthetic lidar-like points",
+        "input": input_description,
+        "input_source": input_source,
+        "source_point_count": source_point_count,
+        "in_range_point_count": in_range_point_count,
         "python": platform.python_version(),
         "torch": torch.__version__,
         "cuda_runtime": torch.version.cuda,
