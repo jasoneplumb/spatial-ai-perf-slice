@@ -25,10 +25,10 @@ python tools/check_environment.py
 bash ./scripts/setup.sh
 
 PCDET="$ROOT/third_party/OpenPCDet"
+OPENPCDET_COMMIT="233f849829b6ac19afb8af8837a0246890908755"
 cd "$PCDET"
-git checkout master
-git pull --ff-only
-OPENPCDET_COMMIT="$(git rev-parse HEAD)"
+git fetch origin "$OPENPCDET_COMMIT"
+git checkout --detach "$OPENPCDET_COMMIT"
 echo "$OPENPCDET_COMMIT" > "$ROOT/third_party/OPENPCDET_COMMIT"
 
 python -m pip install --no-build-isolation -e .
