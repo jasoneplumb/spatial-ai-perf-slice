@@ -64,10 +64,22 @@ def main():
     sys.path.insert(0, str(root))
 
     from pcdet.config import cfg, cfg_from_yaml_file
+    from pcdet.datasets import build_dataloader
     from pcdet.models import build_network, load_data_to_gpu
 
     cfg_from_yaml_file(str(Path(args.cfg).resolve()), cfg)
-    model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=None)
+    # The detector constructor needs dataset geometry/feature metadata. Building
+    # the dataset is setup only; dataset I/O remains outside the timed region.
+    dataset, _, _ = build_dataloader(
+        dataset_cfg=cfg.DATA_CONFIG,
+        class_names=cfg.CLASS_NAMES,
+        batch_size=1,
+        dist=False,
+        workers=0,
+        logger=None,
+        training=False,
+    )
+    model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=dataset)
     model.load_params_from_file(filename=str(Path(args.checkpoint).resolve()), logger=None, to_cpu=False)
     model.cuda().eval()
 
