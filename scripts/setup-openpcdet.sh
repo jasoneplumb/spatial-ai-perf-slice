@@ -22,7 +22,7 @@ export TORCH_CUDA_ARCH_LIST="7.5"
 nvcc --version
 python tools/check_environment.py
 
-./scripts/setup.sh
+bash ./scripts/setup.sh
 
 PCDET="$ROOT/third_party/OpenPCDet"
 cd "$PCDET"
