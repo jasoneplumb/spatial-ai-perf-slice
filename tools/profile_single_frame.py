@@ -3,6 +3,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import platform
 import statistics
 import subprocess
@@ -41,9 +42,16 @@ def git_head(path):
         return "unknown"
 
 
-def fresh_batch(saved):
-    # load_data_to_gpu mutates the dictionary, so every iteration gets a copy.
-    return copy.deepcopy(saved)
+def load_openpcdet_cfg(root: Path, cfg_path: Path):
+    from pcdet.config import cfg, cfg_from_yaml_file
+
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(root / "tools")
+        cfg_from_yaml_file(str(cfg_path), cfg)
+    finally:
+        os.chdir(old_cwd)
+    return cfg
 
 
 def main():
@@ -61,50 +69,59 @@ def main():
         raise SystemExit("CUDA GPU required for this baseline harness")
 
     root = Path(args.openpcdet).resolve()
+    cfg_path = Path(args.cfg).resolve()
     sys.path.insert(0, str(root))
 
-    from pcdet.config import cfg, cfg_from_yaml_file
-    from pcdet.datasets import build_dataloader
+    from pcdet.datasets import DatasetTemplate
     from pcdet.models import build_network, load_data_to_gpu
+    from pcdet.utils import common_utils
 
-    cfg_from_yaml_file(str(Path(args.cfg).resolve()), cfg)
-    # The detector constructor needs dataset geometry/feature metadata. Building
-    # the dataset is setup only; dataset I/O remains outside the timed region.
-    dataset, _, _ = build_dataloader(
+    cfg = load_openpcdet_cfg(root, cfg_path)
+    logger = common_utils.create_logger()
+
+    # The detector needs geometry/feature metadata, but replaying an already
+    # frozen batch does not require opening the Waymo dataset again.
+    dataset = DatasetTemplate(
         dataset_cfg=cfg.DATA_CONFIG,
         class_names=cfg.CLASS_NAMES,
-        batch_size=1,
-        dist=False,
-        workers=0,
-        logger=None,
         training=False,
+        root_path=Path("."),
+        logger=logger,
     )
     model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=dataset)
-    model.load_params_from_file(filename=str(Path(args.checkpoint).resolve()), logger=None, to_cpu=False)
+    model.load_params_from_file(
+        filename=str(Path(args.checkpoint).resolve()), logger=logger, to_cpu=True
+    )
     model.cuda().eval()
 
     saved = torch.load(args.frame, map_location="cpu", weights_only=False)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    def run_once():
-        batch = fresh_batch(saved)
+    def prepare_gpu_batch():
+        batch = copy.deepcopy(saved)
         load_data_to_gpu(batch)
+        torch.cuda.synchronize()
+        return batch
+
+    def run_model(batch):
         with torch.inference_mode():
             pred, _ = model(batch)
         return pred
 
     for _ in range(args.warmup):
-        run_once()
-    torch.cuda.synchronize()
+        batch = prepare_gpu_batch()
+        run_model(batch)
+        torch.cuda.synchronize()
 
     times_ms = []
     prediction = None
     for i in range(args.iterations):
+        batch = prepare_gpu_batch()
         start = torch.cuda.Event(enable_timing=True)
         stop = torch.cuda.Event(enable_timing=True)
         start.record()
-        pred = run_once()
+        pred = run_model(batch)
         stop.record()
         stop.synchronize()
         times_ms.append(float(start.elapsed_time(stop)))
@@ -113,8 +130,7 @@ def main():
 
     torch.save(prediction, out / "prediction.pt")
 
-    # Profile a small number of iterations separately so profiler overhead
-    # never contaminates the primary latency distribution.
+    # Profiling is separate so profiler overhead never contaminates latency.
     activities = [torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]
     with torch.profiler.profile(
         activities=activities,
@@ -123,7 +139,8 @@ def main():
         with_stack=False,
     ) as prof:
         for _ in range(5):
-            run_once()
+            batch = prepare_gpu_batch()
+            run_model(batch)
             torch.cuda.synchronize()
             prof.step()
 
@@ -140,10 +157,11 @@ def main():
         "cuda_runtime": torch.version.cuda,
         "gpu": torch.cuda.get_device_name(0),
         "openpcdet_commit": git_head(root),
-        "config": str(Path(args.cfg).resolve()),
+        "config": str(cfg_path),
         "checkpoint": str(Path(args.checkpoint).resolve()),
         "frame": str(Path(args.frame).resolve()),
         "frame_sha256": sha256(args.frame),
+        "timing_boundary": "model(batch_dict) only; frame load/copy/H2D excluded",
         "warmup_iterations": args.warmup,
         "measured_iterations": args.iterations,
         "latency_ms": {
