@@ -3,6 +3,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +18,19 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def load_openpcdet_cfg(root: Path, cfg_path: Path):
+    from pcdet.config import cfg, cfg_from_yaml_file
+
+    # OpenPCDet resolves _BASE_CONFIG_ relative to its tools directory.
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(root / "tools")
+        cfg_from_yaml_file(str(cfg_path), cfg)
+    finally:
+        os.chdir(old_cwd)
+    return cfg
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--openpcdet", required=True)
@@ -26,12 +40,14 @@ def main():
     args = ap.parse_args()
 
     root = Path(args.openpcdet).resolve()
+    cfg_path = Path(args.cfg).resolve()
     sys.path.insert(0, str(root))
 
-    from pcdet.config import cfg, cfg_from_yaml_file
     from pcdet.datasets import build_dataloader
+    from pcdet.utils import common_utils
 
-    cfg_from_yaml_file(str(Path(args.cfg).resolve()), cfg)
+    cfg = load_openpcdet_cfg(root, cfg_path)
+    logger = common_utils.create_logger()
 
     dataset, _, _ = build_dataloader(
         dataset_cfg=cfg.DATA_CONFIG,
@@ -39,7 +55,7 @@ def main():
         batch_size=1,
         dist=False,
         workers=0,
-        logger=None,
+        logger=logger,
         training=False,
     )
 
@@ -52,7 +68,7 @@ def main():
 
     meta = {
         "dataset_index": args.index,
-        "config": str(Path(args.cfg).resolve()),
+        "config": str(cfg_path),
         "frame_file": str(out),
         "sha256": sha256(out),
     }
