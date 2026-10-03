@@ -21,7 +21,9 @@ See [docs/WORKLOAD.md](docs/WORKLOAD.md).
 
 ## Quick start
 
-Prerequisites: Linux, NVIDIA GPU, CUDA-compatible PyTorch, and the normal OpenPCDet build dependencies.
+On Windows 11, use the scripted WSL2 path in [docs/WINDOWS_WSL.md](docs/WINDOWS_WSL.md). The first checkpoint is simply that `nvidia-smi` works inside Ubuntu.
+
+Prerequisites for the benchmark itself: Linux/WSL2, NVIDIA GPU, CUDA-compatible PyTorch, and the normal OpenPCDet build dependencies.
 
 ```bash
 ./scripts/setup.sh
