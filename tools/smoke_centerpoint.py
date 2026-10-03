@@ -126,7 +126,7 @@ def main():
     sys.modules.setdefault("pcdet.datasets", datasets_pkg)
 
     from pcdet.models import build_network, load_data_to_gpu
-    from pcdet.utils.spconv_utils import spconv
+    from pcdet.utils.spconv_utils import replace_feature, spconv
 
     cfg = load_openpcdet_cfg(root, cfg_path)
 
@@ -318,6 +318,96 @@ def main():
             "max": max(values),
         }
 
+    # Go one level deeper in conv3/conv4. Time the strided transition and each
+    # individual SubMConv inside the two residual blocks. Non-convolution work
+    # (BN/ReLU/add) is timed separately so the expensive CUMM kernels can be
+    # associated with exact network layers.
+    detail_samples = {}
+
+    def record_event(events, name, fn):
+        start = torch.cuda.Event(enable_timing=True)
+        stop = torch.cuda.Event(enable_timing=True)
+        start.record()
+        value = fn()
+        stop.record()
+        events.append((name, start, stop))
+        return value
+
+    def run_post_act(stage_name, stage, x, events):
+        children = list(stage.children())
+        x = record_event(
+            events, f"{stage_name}.sparse_conv", lambda: children[0](x)
+        )
+        x = record_event(
+            events,
+            f"{stage_name}.bn_relu",
+            lambda: replace_feature(x, children[2](children[1](x.features))),
+        )
+        return x
+
+    def run_residual_block(stage_name, block, x, events):
+        identity = x
+        out = record_event(
+            events, f"{stage_name}.conv1", lambda: block.conv1(x)
+        )
+        out = record_event(
+            events,
+            f"{stage_name}.bn1_relu",
+            lambda: replace_feature(out, block.relu(block.bn1(out.features))),
+        )
+        out = record_event(
+            events, f"{stage_name}.conv2", lambda: block.conv2(out)
+        )
+        out = record_event(
+            events,
+            f"{stage_name}.bn2_add_relu",
+            lambda: replace_feature(
+                out,
+                block.relu(block.bn2(out.features) + identity.features),
+            ),
+        )
+        return out
+
+    for _ in range(args.iterations):
+        batch = clone_batch(base_batch)
+        events = []
+        with torch.inference_mode():
+            batch = vfe_module(batch)
+            x = spconv.SparseConvTensor(
+                features=batch["voxel_features"],
+                indices=batch["voxel_coords"].int(),
+                spatial_shape=sparse_backbone.sparse_shape,
+                batch_size=batch["batch_size"],
+            )
+            x = sparse_backbone.conv_input(x)
+            x = sparse_backbone.conv1(x)
+            x = sparse_backbone.conv2(x)
+
+            conv3_children = list(sparse_backbone.conv3.children())
+            x = run_post_act("conv3.downsample", conv3_children[0], x, events)
+            x = run_residual_block("conv3.res1", conv3_children[1], x, events)
+            x = run_residual_block("conv3.res2", conv3_children[2], x, events)
+
+            conv4_children = list(sparse_backbone.conv4.children())
+            x = run_post_act("conv4.downsample", conv4_children[0], x, events)
+            x = run_residual_block("conv4.res1", conv4_children[1], x, events)
+            x = run_residual_block("conv4.res2", conv4_children[2], x, events)
+
+        torch.cuda.synchronize()
+        for name, start, stop in events:
+            detail_samples.setdefault(name, []).append(
+                float(start.elapsed_time(stop))
+            )
+
+    sparse_detail_latency = {}
+    for name, values in detail_samples.items():
+        sparse_detail_latency[name] = {
+            "median": statistics.median(values),
+            "mean": statistics.mean(values),
+            "min": min(values),
+            "max": max(values),
+        }
+
     # Capture one operator-level profile separately from all timing passes.
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -373,6 +463,7 @@ def main():
         "stage_latency_ms": stage_latency,
         "sparse_backbone_substage_latency_ms": sparse_substage_latency,
         "sparse_backbone_active_sites": sparse_active_sites,
+        "sparse_backbone_detail_latency_ms": sparse_detail_latency,
         "profile_artifacts": {
             "operators": str(operator_path),
             "trace": str(trace_path),
