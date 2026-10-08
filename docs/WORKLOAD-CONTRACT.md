@@ -124,7 +124,7 @@ These are derived facts about the reference implementation, not claims about any
 | Voxelizer output dtypes | observed on host (spconv 2.3.8 probe) |
 | N, V, S, M, D for a representative frame | **missing**: N, V, S need a licensed Waymo frame (active sparse sites depend on geometry, not weights); M and D also need a trained checkpoint |
 | Trained checkpoint | **missing**: must be one the user is entitled to use |
-| ONNX graph and shape inference | **missing**: no export path; would cover a subset of stages only |
+| ONNX graph and shape inference | **dense segment exported** (static, validated): [ONNX-DENSE.md](ONNX-DENSE.md). The sparse backbone, voxelization and NMS have no standard-ONNX form |
 | Execution domain, memory placement, transfers per boundary | **unknown**: needs a target partition report, runtime trace, or measurement |
 | Allocated bytes, strides | **unknown** |
 
