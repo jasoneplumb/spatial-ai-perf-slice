@@ -13,6 +13,7 @@ This project uses milestone versions to mark reproducible experimental states. A
 - `tools/density_sweep.py` and [docs/DENSITY-SWEEP.md](docs/DENSITY-SWEEP.md): a 90-scan sweep of clutter, buildings and azimuth density, with cost-model fits tested against held-out legacy inputs.
 - `tools/nms_sweep.py` and [docs/NMS-SWEEP.md](docs/NMS-SWEEP.md): decode and rotated-NMS cost against candidate count, driven by constructed inputs independent of the weights, with GPU-busy time and CUDA runtime calls per frame.
 - `tools/export_dense_onnx.py`, `scripts/setup-onnx.sh` and [docs/ONNX-DENSE.md](docs/ONNX-DENSE.md): a deterministic, fully static ONNX export of the dense segment (`spatial_features` → raw head outputs) with constant folding, shape inventory, per-convolution MAC counts, and an onnxruntime-versus-PyTorch numeric check.
+- `tools/cpu_sparse_backbone.py` and [docs/CPU-SPARSE-BACKBONE.md](docs/CPU-SPARSE-BACKBONE.md): the sparse 3D backbone on the CPU (spconv Native algorithm, bias applied by hook, checked against the GPU), split into rulebook construction and gather–GEMM–scatter, at 1, 4 and 16 threads.
 - `tools/pcdet_harness.py`: OpenPCDet setup shared by the inventory and sweep tools.
 
 ### Changed
@@ -24,6 +25,7 @@ This project uses milestone versions to mark reproducible experimental states. A
 - Compared with the surface-structured parametric scan, the legacy synthetic smoke input (uniform points with no surfaces) inflates active sites at the strided sparse-backbone levels by 6–15× and model-call latency from 47 ms to 165 ms. Legacy smoke stage proportions should not be used to reason about where time goes.
 - The pinned rotated NMS runs its greedy suppression on the host CPU after a blocking device-to-host copy. Decode + NMS costs about 2 ms per frame, nearly independent of candidate count (M ≤ 500, capped by top-K). 58–82% of it is host-side and synchronization overhead (5 stream syncs, 1 blocking copy, 1 device allocation per frame).
 - The dense segment is 85.78 GMAC per frame and uses only Conv, Relu, Pad, ConvTranspose, BatchNormalization and Concat. As exported, `nn.ZeroPad2d` becomes a `Pad` with runtime-computed pads, which leaves 50 tensors with symbolic shapes until the constant chain is folded.
+- On a desktop CPU the sparse backbone takes 171–389 ms on realistic scans even at 16 threads, 12–17× its GPU time. Rulebook construction does not speed up with threads (28–33% of time at 16 threads), and the whole stage speeds up only 1.5–1.7× from 1 to 16 threads. The channel-weighted MAC proxy predicts CPU time too (R² 0.93–0.97; held-out error −8.5% to −1%).
 - Across 90 parametric scans (77k–319k points), model-call latency stays within 44–54 ms. The dense 2D part (31 ± 1 ms, independent of input) is 57–71% of it. Sparse-backbone time is predicted across inputs only by channel-weighted active sites per level, not by voxel or raw site counts.
 
 ## [0.1.0-structural] - 2026-10-03
