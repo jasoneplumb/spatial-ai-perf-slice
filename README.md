@@ -10,17 +10,34 @@ No vendor-specific hardware, SDK, or confidential material belongs in this repos
 
 ## Status
 
-**Milestone `v0.1.0-structural` is complete.** The pinned Waymo CenterPoint graph runs locally and can be measured from whole-model latency down through architectural stages, sparse-backbone substages, individual residual convolutions, and CUDA operators.
+**Milestone `v0.2.0-boundaries` is complete.** The workload's stage boundaries are characterized without licensed data:
+- a verified tensor contract
+- a license-free parametric lidar generator
+- density, NMS and CPU sweeps with cost models tested on held-out inputs
+- deterministic static ONNX exports of the dense segment and of the pillar variant
 
-See [CHANGELOG.md](CHANGELOG.md) and [docs/MILESTONE-0.1.md](docs/MILESTONE-0.1.md) for the reference point, measurements, limitations, and why this milestone matters.
+See [docs/MILESTONE-0.2.md](docs/MILESTONE-0.2.md). One of its findings corrects 0.1: the 0.1 smoke input overstated the sparse backbone's share of the frame (80% against 29–43% on surface-structured scans).
 
-The next milestone is the **representative reference baseline**: first repeat the structural profile with one real Waymo point cloud, then add a compatible trained checkpoint and frozen reference prediction.
+Milestone `v0.1.0-structural` ([docs/MILESTONE-0.1.md](docs/MILESTONE-0.1.md)) established the runnable, layered-profiling vertical slice. [CHANGELOG.md](CHANGELOG.md) has both.
 
-The structural smoke measurements are not a performance baseline.
+The next milestone is still the **representative reference baseline**: one real point cloud, then a compatible trained checkpoint and frozen reference prediction. It is waiting on the data-licensing question.
+
+No result in this repository is a performance baseline. Inputs are synthetic and weights are random.
 
 OpenPCDet does **not** distribute its pretrained Waymo models because of the Waymo Dataset License Agreement. This repository therefore does not fetch an unofficial checkpoint. The reference baseline requires a checkpoint that the user is entitled to use.
 
 See [docs/WORKLOAD.md](docs/WORKLOAD.md). The static tensor contract and stage boundaries are in [docs/WORKLOAD-CONTRACT.md](docs/WORKLOAD-CONTRACT.md).
+
+### Studies
+
+| Question | Tool | Write-up |
+| --- | --- | --- |
+| What crosses each stage boundary? | `tools/derive_contract.py`, `tools/inventory_boundaries.py` | [WORKLOAD-CONTRACT.md](docs/WORKLOAD-CONTRACT.md), [BOUNDARY-INVENTORY.md](docs/BOUNDARY-INVENTORY.md) |
+| How does input structure drive cost? | `tools/scan_generator.py`, `tools/density_sweep.py` | [DENSITY-SWEEP.md](docs/DENSITY-SWEEP.md) |
+| What do decode and NMS cost, and where do they run? | `tools/nms_sweep.py` | [NMS-SWEEP.md](docs/NMS-SWEEP.md) |
+| Can the dense part leave PyTorch? | `tools/export_dense_onnx.py` | [ONNX-DENSE.md](docs/ONNX-DENSE.md) |
+| What would a CPU fallback for the sparse backbone cost? | `tools/cpu_sparse_backbone.py` | [CPU-SPARSE-BACKBONE.md](docs/CPU-SPARSE-BACKBONE.md) |
+| What if the sparse backbone is removed? | `tools/pillar_variant.py` | [PILLAR-VARIANT.md](docs/PILLAR-VARIANT.md) |
 
 ## Environment
 
@@ -40,6 +57,7 @@ Setup:
 ```bash
 bash ./scripts/setup-wsl.sh
 bash ./scripts/setup-openpcdet.sh
+bash ./scripts/setup-onnx.sh        # optional: ONNX export tools only
 ```
 
 ## Structural smoke test

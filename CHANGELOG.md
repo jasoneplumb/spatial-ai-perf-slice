@@ -2,7 +2,9 @@
 
 This project uses milestone versions to mark reproducible experimental states. A milestone version does not imply that the workload is yet suitable for cross-platform performance comparison.
 
-## [Unreleased]
+## [0.2.0-boundaries] - 2026-10-07
+
+Boundary characterization without licensed data. See [docs/MILESTONE-0.2.md](docs/MILESTONE-0.2.md).
 
 ### Added
 
