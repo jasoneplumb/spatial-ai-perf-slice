@@ -82,8 +82,8 @@ Symbols for frame-dependent counts: N points, V voxels, S active sparse sites, M
 | --- | --- | --- | ---: | ---: |
 | points | N × 5 | FP32 | — | — |
 | voxels | V × 5 × 5 | FP32 | — | 15,000,000 |
-| voxel_num_points | V | INT32 | — | 600,000 |
-| voxel_coords | V × 4 | INT32 | — | 2,400,000 |
+| voxel_num_points | V | INT32 on host → **FP32** in model | — | 600,000 |
+| voxel_coords | V × 4 | INT32 on host → **FP32** in model → INT32 in backbone | — | 2,400,000 |
 | voxel_features | V × 5 | FP32 | — | 3,000,000 |
 | encoded sparse features | S × 128 | FP32 | — | 36,192,256 |
 | encoded sparse indices | S × 4 | INT32 | — | 1,131,008 |
@@ -128,8 +128,10 @@ These are derived facts about the reference implementation, not claims about any
 | Execution domain, memory placement, transfers per boundary | **unknown**: needs a target partition report, runtime trace, or measurement |
 | Allocated bytes, strides | **unknown** |
 
-## Next increment (Phase 1)
+## Integer-to-float round trip at host-to-device
 
-1. Add forward hooks to the existing structural profiler and record the observed shape, dtype, stride, and contiguity of every boundary tensor. Check them against this contract.
-2. Record N, V and S for one real Waymo frame. Synthetic counts are not representative.
-3. Optionally, attempt an ONNX export of the dense segment only (`spatial_features` → head outputs), which has a fully static contract. That gives a portable artifact a graph compiler could consume.
+`load_data_to_gpu` (`pcdet/models/__init__.py`) converts every numpy array with `.float()`. The voxelizer's INT32 coordinates and point counts therefore enter the model as FP32, and `VoxelResBackBone8x` casts the coordinates back with `.int()`. The values are exact (grid indices are far below 2^24) and the transfer size is unchanged (both are 4 bytes). The cost is one extra conversion on the host (`.float()` before `.cuda()`) and one conversion back on the device for each frame. This was first missed by the static derivation and then caught by the Phase 1 inventory ([BOUNDARY-INVENTORY.md](BOUNDARY-INVENTORY.md)).
+
+## Next increment
+
+Phase 1 is recorded in [BOUNDARY-INVENTORY.md](BOUNDARY-INVENTORY.md).

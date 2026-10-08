@@ -154,12 +154,18 @@ def derive(cfg, probe):
          "V x P x F, zero-padded beyond voxel_num_points", [max_voxels, max_pts_per_voxel, num_point_features],
          "derived", "waymo_dataset.yaml transform_points_to_voxels; dtype from spconv Point2VoxelCPU3d probe",
          "V <= MAX_NUMBER_OF_VOXELS[test]; frame-dependent."),
-        ("voxel_num_points", "voxelize", "vfe", [None], vdt["voxel_num_points"], "V", [max_voxels],
-         "derived", "spconv Point2VoxelCPU3d probe", "Per-voxel occupied point count."),
-        ("voxel_coords", "voxelize", "sparse_backbone_3d", [None, 4], vdt["voxel_coords"],
+        # load_data_to_gpu converts every numpy array with .float(), so integer
+        # voxelizer outputs enter the model as FP32; the sparse backbone casts
+        # coordinates back with .int(). Exact while |value| < 2**24.
+        ("voxel_num_points", "voxelize", "vfe", [None], "FP32", "V", [max_voxels],
+         "derived", f"voxelizer emits {vdt['voxel_num_points']} (probe); models/__init__.py load_data_to_gpu .float()",
+         f"Per-voxel occupied point count. Converted {vdt['voxel_num_points']} -> FP32 at host-to-device."),
+        ("voxel_coords", "voxelize", "sparse_backbone_3d", [None, 4], "FP32",
          "V x [batch, z, y, x]; batch column prepended by collate_batch", [max_voxels, 4],
-         "derived", "dataset.py collate_batch np.pad(coor, ((0,0),(1,0))); probe gives V x 3 before collate",
-         "Index tensor; also defines the sparse-convolution rulebook."),
+         "derived", "dataset.py collate_batch np.pad; models/__init__.py load_data_to_gpu .float(); "
+                    "spconv_backbone.py voxel_coords.int()",
+         f"Index tensor defining the sparse-convolution rulebook. Converted {vdt['voxel_coords']} -> FP32 at "
+         "host-to-device and back to INT32 inside the sparse backbone."),
         ("voxel_features", "vfe", "sparse_backbone_3d", [None, num_point_features], "FP32", "V x F (mean of points)",
          [max_voxels, num_point_features], "derived", "mean_vfe.py forward", "Arithmetic mean over occupied points."),
         ("encoded_sparse_features", "sparse_backbone_3d", "height_compression", [None, 128], "FP32",

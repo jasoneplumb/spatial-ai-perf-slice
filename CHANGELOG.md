@@ -7,6 +7,16 @@ This project uses milestone versions to mark reproducible experimental states. A
 ### Added
 
 - `tools/derive_contract.py` and [docs/WORKLOAD-CONTRACT.md](docs/WORKLOAD-CONTRACT.md): the static input/output contract, stage list and per-boundary tensor shapes of the pinned CenterPoint workload, derived from the config and module source with provenance hashes. Frame-dependent dimensions stay `null`; execution and memory placement stay `unknown`.
+- `tools/inventory_boundaries.py` and [docs/BOUNDARY-INVENTORY.md](docs/BOUNDARY-INVENTORY.md): Phase 1 inventory of every stage-boundary tensor, with CUDA allocation per stage, checked against the contract (19/19 match).
+- `tools/scan_generator.py`: a deterministic parametric 64-beam lidar scan of a procedural street scene, with tunable sensor and scene parameters and no dataset content.
+
+### Changed
+
+- The contract now records that `load_data_to_gpu` converts the INT32 voxel coordinates and point counts to FP32.
+
+### Observations
+
+- Compared with the surface-structured parametric scan, the legacy synthetic smoke input (uniform points with no surfaces) inflates active sites at the strided sparse-backbone levels by 6–15× and model-call latency from 47 ms to 165 ms. Legacy smoke stage proportions should not be used to reason about where time goes.
 
 ## [0.1.0-structural] - 2026-10-03
 
