@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Deterministic parametric LiDAR scan generator.
 
-Casts one ring of beams from a single sensor into a procedural street scene
-(ground plane plus oriented boxes: vehicles, pedestrians, cyclists, poles,
-buildings) and returns first-return hits as model-ready N x 5 points
-[x, y, z, intensity, elongation] in a vehicle-like frame (x forward, y left,
-z up).
+Casts a 64-beam top lidar ring (and optionally four short-range lidars) into
+a procedural street scene (ground plane plus oriented boxes: vehicles,
+pedestrians, cyclists, poles, buildings, optionally the ego vehicle body) and
+returns hits as model-ready N x 5 points [x, y, z, intensity, elongation] in a
+vehicle-like frame (x forward, y left, z up). Optional second returns model a
+beam straddling an object edge.
 
 The geometry is the point: beam rings on the ground, returns concentrated on
 surfaces, and occlusion. That structure determines voxel occupancy and
@@ -25,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 
 @dataclass
@@ -52,6 +53,23 @@ class ScanParams:
     poles: int = 24
     buildings_per_side: int = 10
     building_gap_m: float = 4.0
+    # Optional sensor-model extensions (version 2). All off by default, so version-1 parameters reproduce
+    # version-1 output exactly; --preset waymo-like turns them on.
+    ego_body: bool = False
+    ego_length_m: float = 4.8
+    ego_width_m: float = 1.9
+    ego_height_m: float = 1.7
+    short_range_lidars: int = 0
+    sr_beams: int = 200
+    sr_azimuth_samples: int = 600
+    sr_hfov_deg: float = 180.0
+    sr_inclination_min_deg: float = -90.0
+    sr_inclination_max_deg: float = 30.0
+    sr_max_range_m: float = 20.0
+    sr_mount_height_m: float = 0.8
+    second_returns: bool = False
+    beam_divergence_mrad: float = 3.0
+    second_return_min_separation_m: float = 0.5
 
 
 PARAM_NOTES = {
@@ -65,10 +83,31 @@ PARAM_NOTES = {
     "ground_z_m": "Assumption: ground height in the output frame.",
     "dropout": "Assumption: fraction of rays with no return.",
     "range_noise_m": "Assumption: Gaussian range noise sigma.",
+    "ego_body": "Ego vehicle as an occluding box centred under the sensor; returns from it are discarded.",
+    "ego_length_m": "Assumption: ego box size.",
+    "short_range_lidars": "Published: four short-range lidars (front, side-left, side-right, rear); 0 disables.",
+    "sr_beams": "Assumption: commonly cited short-range range-image height; not verified against an official source.",
+    "sr_azimuth_samples": "Assumption: commonly cited short-range range-image width; not verified.",
+    "sr_hfov_deg": "Assumption: horizontal field of view of each short-range lidar.",
+    "sr_inclination_min_deg": "Published: Waymo Open Dataset paper Table 2, F/SL/SR/R VFOV [-90, +30] deg.",
+    "sr_inclination_max_deg": "Published: same as sr_inclination_min_deg.",
+    "sr_max_range_m": "Published: short-range lidars restricted to 20 m (same table).",
+    "sr_mount_height_m": "Assumption: short-range lidar height above ground; mounts sit just outside the ego box.",
+    "second_returns": "Published: two returns per pulse are provided. Modeled here only at object edges (see below).",
+    "beam_divergence_mrad": "Assumption: offset of the second probe ray that finds an edge's background surface.",
+    "second_return_min_separation_m": "Assumption: minimum range gap between first and second return.",
 }
 
-# Not modeled: the four short-range lidars, second returns, the ego vehicle
-# body, vegetation, terrain slope, sensor motion during the sweep.
+PRESETS = {
+    # sr_beams x sr_azimuth_samples is calibrated so that the reference scene (default scene parameters,
+    # seeds 1 and 7) totals ~183k points, within 4% of the 177K published average points per frame
+    # (all lidars, all returns; Waymo Open Dataset paper Table 1). Calibrated, not measured.
+    "waymo-like": {"ego_body": True, "short_range_lidars": 4, "second_returns": True,
+                   "sr_beams": 100, "sr_azimuth_samples": 300},
+}
+
+# Not modeled: vegetation, terrain slope, sensor motion during the sweep,
+# second returns other than at object edges, and physical intensity/elongation.
 
 
 def _rot_z(yaw):
@@ -140,79 +179,172 @@ def build_scene(p: ScanParams, rng):
     return boxes
 
 
-INTENSITY = {"ground": 0.08, "vehicle": 0.35, "cyclist": 0.25, "pedestrian": 0.15, "pole": 0.3, "building": 0.2}
+INTENSITY = {"ground": 0.08, "vehicle": 0.35, "cyclist": 0.25, "pedestrian": 0.15, "pole": 0.3, "building": 0.2,
+             "ego": 0.35}  # ego returns are discarded; entry keeps the lookup total
 
 
-def generate(p: ScanParams, seed: int):
-    rng = np.random.default_rng(seed)
-    boxes = build_scene(p, rng)
+def _cast(o, d, boxes, ground_z):
+    """First hit per ray. o: (3,) or (R, 3) origins; d: (R, 3) unit directions.
 
-    u = np.linspace(0.0, 1.0, p.beams) ** p.inclination_gamma
-    incl = np.deg2rad(p.inclination_min_deg + (p.inclination_max_deg - p.inclination_min_deg) * u)
-    az = np.linspace(-np.pi, np.pi, p.azimuth_samples, endpoint=False)
-    inc_g, az_g = np.meshgrid(incl, az, indexing="ij")  # beam-major, like a range image
-    d = np.stack([np.cos(inc_g) * np.cos(az_g), np.cos(inc_g) * np.sin(az_g), np.sin(inc_g)], -1).reshape(-1, 3)
-    o = np.array([0.0, 0.0, p.ground_z_m + p.sensor_height_m])
-
+    Returns range t (inf on a miss) and surface id: -2 miss, -1 ground, i >= 0 boxes[i].
+    """
     t = np.full(d.shape[0], np.inf)
-    kind = np.full(d.shape[0], -1, dtype=np.int32)
-    kinds = ["ground"] + sorted({b["kind"] for b in boxes})
-    kind_id = {k: i for i, k in enumerate(kinds)}
-
+    surf = np.full(d.shape[0], -2, dtype=np.int32)
+    oz = o[..., 2]
     with np.errstate(divide="ignore", invalid="ignore"):
-        tg = np.where(d[:, 2] < 0, (p.ground_z_m - o[2]) / d[:, 2], np.inf)
-    t, kind = np.where(tg < t, tg, t), np.where(tg < t, kind_id["ground"], kind)
-
-    for b in boxes:
+        tg = np.where(d[:, 2] < 0, (ground_z - oz) / d[:, 2], np.inf)
+    t, surf = np.where(tg < t, tg, t), np.where(tg < t, -1, surf)
+    for i, b in enumerate(boxes):
         r_inv = _rot_z(-b["yaw"])
-        ol = r_inv @ (o - np.asarray(b["center"]))
+        ol = (o - np.asarray(b["center"])) @ r_inv.T
         dl = d @ r_inv.T
         half = np.asarray(b["size"]) / 2
         with np.errstate(divide="ignore", invalid="ignore"):
             t1 = (-half - ol) / dl
             t2 = (half - ol) / dl
-        tmin = np.nanmax(np.minimum(t1, t2), axis=1)
-        tmax = np.nanmin(np.maximum(t1, t2), axis=1)
+        tmin = np.nanmax(np.minimum(t1, t2), axis=-1)
+        tmax = np.nanmin(np.maximum(t1, t2), axis=-1)
         hit = (tmax >= tmin) & (tmin > 0)
         closer = hit & (tmin < t)
         t = np.where(closer, tmin, t)
-        kind = np.where(closer, kind_id[b["kind"]], kind)
+        surf = np.where(closer, i, surf)
+    return t, surf
 
-    keep = np.isfinite(t) & (t >= p.min_range_m) & (t <= p.max_range_m)
-    keep &= rng.random(t.shape[0]) >= p.dropout
+
+def _returns(o, d, t, surf, keep, rng, p, surf_kind, intensity_scale=1.0):
+    """Turn hits into points: dropout, range noise, placeholder intensity/elongation."""
+    keep = keep & (rng.random(t.shape[0]) >= p.dropout)
     t = t + rng.normal(0.0, p.range_noise_m, t.shape[0])
-    xyz = o + t[keep, None] * d[keep]
-    k = kind[keep]
-
-    base = np.array([INTENSITY[n] for n in kinds])[k]
+    o_k = o[keep] if o.ndim == 2 else o
+    xyz = o_k + t[keep, None] * d[keep]
+    k = surf_kind[surf[keep] + 2]
+    base = np.array([INTENSITY[n] for n in KIND_ORDER])[k] * intensity_scale
     intensity = np.clip(base + rng.normal(0.0, 0.03, k.shape[0]), 0.0, 1.0)
     elongation = np.abs(rng.normal(0.0, 0.05, k.shape[0]))
-    points = np.column_stack([xyz, intensity, elongation]).astype(np.float32)
+    return np.column_stack([xyz, intensity, elongation]).astype(np.float32), k
 
-    counts = {n: int((k == i).sum()) for n, i in kind_id.items()}
+
+KIND_ORDER = ["ground", "building", "cyclist", "pedestrian", "pole", "vehicle", "ego"]
+
+
+def _ring(incl_min, incl_max, beams, gamma, az_start, az_span, samples, full_circle):
+    u = np.linspace(0.0, 1.0, beams) ** gamma
+    incl = np.deg2rad(incl_min + (incl_max - incl_min) * u)
+    az = (np.linspace(-np.pi, np.pi, samples, endpoint=False) if full_circle
+          else az_start + np.linspace(-az_span / 2, az_span / 2, samples))
+    inc_g, az_g = np.meshgrid(incl, az, indexing="ij")  # beam-major, like a range image
+    return np.stack([np.cos(inc_g) * np.cos(az_g), np.cos(inc_g) * np.sin(az_g), np.sin(inc_g)], -1).reshape(-1, 3)
+
+
+def _short_range_mounts(p):
+    """(name, origin, yaw) for front, side-left, side-right, rear, just outside the ego box."""
+    hx, hy, z = p.ego_length_m / 2 + 0.05, p.ego_width_m / 2 + 0.05, p.ground_z_m + p.sr_mount_height_m
+    mounts = [("front", (hx, 0.0, z), 0.0), ("side_left", (0.0, hy, z), np.pi / 2),
+              ("side_right", (0.0, -hy, z), -np.pi / 2), ("rear", (-hx, 0.0, z), np.pi)]
+    return mounts[:p.short_range_lidars]
+
+
+def _second_probe(d, rng, divergence):
+    """Directions offset from d by `divergence` radians in a random perpendicular direction."""
+    a = np.where(np.abs(d[:, 2:3]) < 0.9, np.array([[0.0, 0.0, 1.0]]), np.array([[1.0, 0.0, 0.0]]))
+    u = np.cross(d, a)
+    u /= np.linalg.norm(u, axis=1, keepdims=True)
+    v = np.cross(d, u)
+    phi = rng.uniform(0.0, 2 * np.pi, d.shape[0])[:, None]
+    d2 = d + divergence * (np.cos(phi) * u + np.sin(phi) * v)
+    return d2 / np.linalg.norm(d2, axis=1, keepdims=True)
+
+
+def generate(p: ScanParams, seed: int):
+    rng = np.random.default_rng(seed)
+    boxes = build_scene(p, rng)
+    ego_index = None
+    if p.ego_body:
+        ego_index = len(boxes)
+        boxes = boxes + [{"kind": "ego", "center": [0.0, 0.0, p.ground_z_m + p.ego_height_m / 2],
+                          "size": [p.ego_length_m, p.ego_width_m, p.ego_height_m], "yaw": 0.0}]
+    # surface id (-2 miss, -1 ground, i box) + 2 -> index into surf_kind -> index into KIND_ORDER
+    surf_kind = np.array([0, 0] + [KIND_ORDER.index(b["kind"]) for b in boxes])
+
+    sensors = [("top", np.array([0.0, 0.0, p.ground_z_m + p.sensor_height_m]),
+                _ring(p.inclination_min_deg, p.inclination_max_deg, p.beams, p.inclination_gamma,
+                      0.0, 0.0, p.azimuth_samples, True), p.max_range_m)]
+    for name, origin, yaw in _short_range_mounts(p):
+        sensors.append((name, np.array(origin),
+                        _ring(p.sr_inclination_min_deg, p.sr_inclination_max_deg, p.sr_beams, 1.0,
+                              yaw, np.deg2rad(p.sr_hfov_deg), p.sr_azimuth_samples, False), p.sr_max_range_m))
+
+    chunks, kinds, per_sensor, rays = [], [], {}, 0
+    for name, o, d, max_range in sensors:
+        rays += d.shape[0]
+        t, surf = _cast(o, d, boxes, p.ground_z_m)
+        valid = np.isfinite(t) & (t >= p.min_range_m) & (t <= max_range)
+        if ego_index is not None:
+            valid &= surf != ego_index  # self-returns are discarded
+        pts, k = _returns(o, d, t, surf, valid, rng, p, surf_kind)
+        chunks.append(pts)
+        kinds.append(k)
+        per_sensor[name] = {"rays": int(d.shape[0]), "first_returns": int(pts.shape[0])}
+        if p.second_returns:
+            # A beam straddling an object edge also returns from the surface behind it: probe a ray offset
+            # by the beam divergence and keep its hit when it lands on a different, farther surface.
+            d2 = _second_probe(d, rng, p.beam_divergence_mrad * 1e-3)
+            t2, surf2 = _cast(o, d2, boxes, p.ground_z_m)
+            second = (valid & np.isfinite(t2) & (t2 <= max_range) & (surf2 != surf)
+                      & (t2 > t + p.second_return_min_separation_m))
+            if ego_index is not None:
+                second &= surf2 != ego_index
+            pts2, k2 = _returns(o, d2, t2, surf2, second, rng, p, surf_kind, intensity_scale=0.5)
+            chunks.append(pts2)
+            kinds.append(k2)
+            per_sensor[name]["second_returns"] = int(pts2.shape[0])
+
+    points = np.concatenate(chunks, axis=0)
+    k = np.concatenate(kinds)
+    present = ["ground"] + sorted({b["kind"] for b in boxes if b["kind"] != "ego"})
+    counts = {n: int((k == KIND_ORDER.index(n)).sum()) for n in present}
     scene = {
-        "boxes": {n: sum(1 for b in boxes if b["kind"] == n) for n in kinds if n != "ground"},
-        "rays": int(d.shape[0]),
+        "boxes": {n: sum(1 for b in boxes if b["kind"] == n) for n in present if n != "ground"},
+        "rays": int(rays),
         "returns": int(points.shape[0]),
         "returns_by_surface": counts,
+        "per_sensor": per_sensor,
     }
     return points, scene
 
 
+def _bool(s):
+    if s.lower() in ("1", "true", "yes", "on"):
+        return True
+    if s.lower() in ("0", "false", "no", "off"):
+        return False
+    raise argparse.ArgumentTypeError(f"expected a boolean, got {s!r}")
+
+
 def _add_param_args(ap):
+    # Defaults are None so that explicit flags can be told apart from preset values.
     for f in dataclasses.fields(ScanParams):
-        ap.add_argument("--" + f.name.replace("_", "-"), type=type(f.default), default=f.default,
-                        help=PARAM_NOTES.get(f.name))
+        kind = _bool if isinstance(f.default, bool) else type(f.default)
+        ap.add_argument("--" + f.name.replace("_", "-"), type=kind, default=None,
+                        help=f"{PARAM_NOTES.get(f.name, '')} (default {f.default})")
+
+
+def params_from_args(args):
+    values = dict(PRESETS[args.preset]) if args.preset else {}
+    values.update({f.name: getattr(args, f.name) for f in dataclasses.fields(ScanParams)
+                   if getattr(args, f.name) is not None})
+    return dataclasses.replace(ScanParams(), **values)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--out", required=True, help="output .npy (N x 5 float32); a .json sidecar is written beside it")
+    ap.add_argument("--preset", choices=sorted(PRESETS), help="named parameter set; explicit flags override it")
     _add_param_args(ap)
     args = ap.parse_args()
 
-    params = ScanParams(**{f.name: getattr(args, f.name) for f in dataclasses.fields(ScanParams)})
+    params = params_from_args(args)
     points, scene = generate(params, args.seed)
 
     out = Path(args.out)
@@ -222,10 +354,14 @@ def main():
         "generator": "tools/scan_generator.py",
         "generator_version": GENERATOR_VERSION,
         "seed": args.seed,
+        "preset": args.preset,
         "params": dataclasses.asdict(params),
         "param_notes": PARAM_NOTES,
-        "not_modeled": ["short-range lidars", "second returns", "ego vehicle body", "vegetation",
-                        "terrain slope", "motion during sweep", "physical intensity/elongation"],
+        "not_modeled": ([] if params.short_range_lidars else ["short-range lidars"])
+                       + ([] if params.second_returns else ["second returns"])
+                       + ([] if params.ego_body else ["ego vehicle body"])
+                       + (["second returns other than at object edges"] if params.second_returns else [])
+                       + ["vegetation", "terrain slope", "motion during sweep", "physical intensity/elongation"],
         "scene": scene,
         "points_shape": list(points.shape),
         "points_sha256": hashlib.sha256(points.tobytes()).hexdigest(),

@@ -99,19 +99,52 @@ Every parameter is exposed as a CLI flag. The same parameters and seed give bit-
 | dropout / range noise | 5% / 0.02 m | **assumption** |
 | scene counts and sizes | see `ScanParams` | **assumption** |
 
-What it doesn't model:
+### Version 2: short-range lidars, ego body and second returns
 
-- **The four short-range lidars and second returns.** OpenPCDet's Waymo preprocessing merges all five lidars and both returns (`use_two_returns=True`). The paper reports an average of 177K points per frame across all returns. One first-return ring gives about 158K here, but with a different spatial distribution.
-- **The ego vehicle body.**
-- **Vegetation and other irregular clutter.**
+`--preset waymo-like` adds three optional sensor-model extensions. With default parameters, version 2 reproduces version 1 bit for bit: the seed-7 scan is still `c9d636f3…`, so every earlier result stands.
+
+| Extension | Model | Basis |
+| --- | --- | --- |
+| Four short-range lidars | front, side-left, side-right and rear, each a ring of `sr_beams × sr_azimuth_samples` rays | count, inclination −90° to +30° and 20 m range: **published** (paper Table 2). Mount positions, 180° horizontal FOV each: **assumption** |
+| Short-range density | 100 beams × 300 azimuth samples per sensor in the preset | **calibrated**: the reference scene (seeds 1 and 7) then totals ~183k points, within 4% of the paper's 177K average per frame (all lidars, all returns). Not measured |
+| Ego vehicle body | 4.8 × 1.9 × 1.7 m box under the top sensor that occludes every sensor; returns from it are discarded | **assumption** |
+| Second returns | each ray is re-cast offset by the beam divergence (3 mrad); if that lands on a different surface at least 0.5 m farther, it adds a second return | two returns per pulse: **published**. Edge-only mechanism, divergence and separation: **assumption** |
+
+On the seed-7 scene the preset gives 182,946 points:
+
+| Source | Points |
+| --- | ---: |
+| Top lidar | 113,723 |
+| Short-range lidars | 68,428 |
+| Second returns (all at object edges) | 795 |
+
+The ego roof removes 28% of the top lidar's first returns compared with version 1. This follows from the assumed 0.3 m between the sensor (2.0 m) and the roof (1.7 m), and is sensitive to both. At a 2.3 m sensor height, top returns rise from 113.7k to 148.7k.
+
+Effect on the workload, seed-7 scene, same voxel model:
+
+| | Version 1 (top only) | `waymo-like` | Change |
+| --- | ---: | ---: | ---: |
+| Points in range | 158,206 | 174,578 | +10% |
+| Voxels | 55,186 | 59,307 | +7.5% |
+| Points lost to the 5-point cap | 24,118 | 38,337 | +59% |
+| Active sites conv2 / conv3 / conv4 / conv_out | 45,088 / 18,248 / 7,110 / 5,592 | 50,099 / 20,297 / 7,689 / 6,114 | +6–11% |
+| Sparse backbone (RTX 2060, median of 20) | 16.5 ms | 18.6 ms | +13% |
+| Model call | 47.3 ms | 49.9 ms | +5% |
+| Pillars (`centerpoint_pillar_1x.yaml`) | 5,967 | 6,259 | +4.9% |
+
+The short-range lidars add points mostly in the near field, where voxels and pillars are already occupied, so the voxel cap absorbs most of them. The boundary contract still matches (19/19).
+
+What it still doesn't model:
+
+- **Vegetation and other irregular clutter.** This is the main source of second returns, and of scattered occupancy, in real scenes.
 - **Terrain slope.**
 - **Motion during the sweep.**
 - **Physical intensity or elongation.** These values are placeholders, and with random weights they don't affect any measured quantity.
 
-The missing clutter and extra sensors would add voxels and active sites. So the scan is probably an *optimistic* (sparse) bound and the legacy input a *pessimistic* (dense, isolated) one. Where a real frame falls between them is unknown without real data.
+So even the `waymo-like` scan is probably an *optimistic* (sparse) bound, and the legacy input a *pessimistic* (dense, isolated) one. Adding the extra sensors and second returns narrowed the gap only slightly (+13% backbone time). Where a real frame falls is still unknown without real data.
 
 ## Next steps
 
-1. Sweep the generator's scene density (objects, buildings, dropout) and point count to turn the sparse backbone's cost into curves of V and S, rather than single points.
-2. Add an optional short-range-lidar and second-return model, so that point counts and near-field density approach the published 177K average.
-3. Export the dense segment (`spatial_features` → head outputs) to ONNX. Its contract is fully static and has now been verified.
+Steps 1 and 3 of the original list are done ([DENSITY-SWEEP.md](DENSITY-SWEEP.md), [ONNX-DENSE.md](ONNX-DENSE.md)), and so is step 2 (version 2 above). Remaining:
+
+1. A vegetation-like clutter model (irregular, partly transmissive). It would test whether scattered occupancy, not point count, is what separates synthetic from real frames.
