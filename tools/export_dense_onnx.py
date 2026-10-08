@@ -35,8 +35,8 @@ import torch.nn as nn
 
 from pcdet_harness import Workload
 
-ONNX_DTYPES = {1: "FP32", 6: "INT32", 7: "INT64", 10: "FP16"}
-BYTES = {"FP32": 4, "INT32": 4, "INT64": 8, "FP16": 2}
+ONNX_DTYPES = {1: "FP32", 6: "INT32", 7: "INT64", 9: "BOOL", 10: "FP16"}
+BYTES = {"FP32": 4, "INT32": 4, "INT64": 8, "BOOL": 1, "FP16": 2}
 
 
 class DenseSegment(nn.Module):
@@ -51,6 +51,9 @@ class DenseSegment(nn.Module):
         x = self.backbone_2d({"spatial_features": spatial_features})["spatial_features_2d"]
         out = self.head(self.shared_conv(x))
         return tuple(out[k] for k in self.output_names)
+
+
+LARGE = 1 << 16
 
 
 def fold_constants(model):
@@ -70,6 +73,12 @@ def fold_constants(model):
     for node in g.node:
         if all(i == "" or i in const for i in node.input):
             outs = ReferenceEvaluator(node).run(None, {i: const[i] for i in node.input if i})
+            in_size = sum(const[i].size for i in node.input if i)
+            if any(np.asarray(o).size > max(LARGE, in_size) for o in outs):
+                # Keep nodes that generate data (ConstantOfShape, Expand, Tile of a small input):
+                # folding them would store the generated tensor as a weight.
+                kept.append(node)
+                continue
             for name, value in zip(node.output, outs):
                 const[name] = np.asarray(value)
             folded[node.op_type] += 1
@@ -110,7 +119,7 @@ def sha256(path):
 
 def tensor_info(vi):
     t = vi.type.tensor_type
-    dims = [d.dim_value if d.HasField("dim_value") and d.dim_value > 0 else None for d in t.shape.dim]
+    dims = [d.dim_value if d.HasField("dim_value") else None for d in t.shape.dim]
     dtype = ONNX_DTYPES.get(t.elem_type, str(t.elem_type))
     static = all(d is not None for d in dims)
     return {"name": vi.name, "shape": dims, "dtype": dtype,

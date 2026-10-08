@@ -9,15 +9,16 @@ This project uses milestone versions to mark reproducible experimental states. A
 - `tools/derive_contract.py` and [docs/WORKLOAD-CONTRACT.md](docs/WORKLOAD-CONTRACT.md): the static input/output contract, stage list and per-boundary tensor shapes of the pinned CenterPoint workload, derived from the config and module source with provenance hashes. Frame-dependent dimensions stay `null`; execution and memory placement stay `unknown`.
 - `tools/inventory_boundaries.py` and [docs/BOUNDARY-INVENTORY.md](docs/BOUNDARY-INVENTORY.md): Phase 1 inventory of every stage-boundary tensor, with CUDA allocation per stage, checked against the contract (19/19 match).
 - `tools/scan_generator.py`: a deterministic parametric 64-beam lidar scan of a procedural street scene, with tunable sensor and scene parameters and no dataset content.
-
 - `tools/density_sweep.py` and [docs/DENSITY-SWEEP.md](docs/DENSITY-SWEEP.md): a 90-scan sweep of clutter, buildings and azimuth density, with cost-model fits tested against held-out legacy inputs.
 - `tools/nms_sweep.py` and [docs/NMS-SWEEP.md](docs/NMS-SWEEP.md): decode and rotated-NMS cost against candidate count, driven by constructed inputs independent of the weights, with GPU-busy time and CUDA runtime calls per frame.
 - `tools/export_dense_onnx.py`, `scripts/setup-onnx.sh` and [docs/ONNX-DENSE.md](docs/ONNX-DENSE.md): a deterministic, fully static ONNX export of the dense segment (`spatial_features` → raw head outputs) with constant folding, shape inventory, per-convolution MAC counts, and an onnxruntime-versus-PyTorch numeric check.
 - `tools/cpu_sparse_backbone.py` and [docs/CPU-SPARSE-BACKBONE.md](docs/CPU-SPARSE-BACKBONE.md): the sparse 3D backbone on the CPU (spconv Native algorithm, bias applied by hook, checked against the GPU), split into rulebook construction and gather–GEMM–scatter, at 1, 4 and 16 threads.
+- `tools/pillar_variant.py` and [docs/PILLAR-VARIANT.md](docs/PILLAR-VARIANT.md): stage timing of the pinned `centerpoint_pillar_1x.yaml`, and a static ONNX export of its whole network from voxelizer output to raw head outputs (pillars padded to P_MAX, batch-1 scatter and PillarVFE features rewritten, identical to OpenPCDet's modules).
 - `tools/pcdet_harness.py`: OpenPCDet setup shared by the inventory and sweep tools.
 
 ### Changed
 
+- `fold_constants` no longer stores generated tensors (`ConstantOfShape`, `Expand`) as weights, and the ONNX inventory understands BOOL tensors and zero-length dimensions. The dense-segment export is unchanged.
 - The contract now records that `load_data_to_gpu` converts the INT32 voxel coordinates and point counts to FP32.
 
 ### Observations
@@ -26,6 +27,7 @@ This project uses milestone versions to mark reproducible experimental states. A
 - The pinned rotated NMS runs its greedy suppression on the host CPU after a blocking device-to-host copy. Decode + NMS costs about 2 ms per frame, nearly independent of candidate count (M ≤ 500, capped by top-K). 58–82% of it is host-side and synchronization overhead (5 stream syncs, 1 blocking copy, 1 device allocation per frame).
 - The dense segment is 85.78 GMAC per frame and uses only Conv, Relu, Pad, ConvTranspose, BatchNormalization and Concat. As exported, `nn.ZeroPad2d` becomes a `Pad` with runtime-computed pads, which leaves 50 tensors with symbolic shapes until the constant chain is folded.
 - On a desktop CPU the sparse backbone takes 171–389 ms on realistic scans even at 16 threads, 12–17× its GPU time. Rulebook construction does not speed up with threads (28–33% of time at 16 threads), and the whole stage speeds up only 1.5–1.7× from 1 to 16 threads. The channel-weighted MAC proxy predicts CPU time too (R² 0.93–0.97; held-out error −8.5% to −1%).
+- The pillar CenterPoint variant has no sparse 3D backbone and exports as one static ONNX graph with a single scatter. It does 2.6× the dense work (223.9 vs 85.8 GMAC, with the head at stride 1), takes 90 ms on the reference GPU against 44–54 ms, and is documented upstream at 2.7–5.8 points lower Waymo L2 mAPH.
 - Across 90 parametric scans (77k–319k points), model-call latency stays within 44–54 ms. The dense 2D part (31 ± 1 ms, independent of input) is 57–71% of it. Sparse-backbone time is predicted across inputs only by channel-weighted active sites per level, not by voxel or raw site counts.
 
 ## [0.1.0-structural] - 2026-10-03
