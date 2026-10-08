@@ -2,6 +2,12 @@
 
 This project uses milestone versions to mark reproducible experimental states. A milestone version does not imply that the workload is yet suitable for cross-platform performance comparison.
 
+## [Unreleased]
+
+### Added
+
+- `tools/derive_contract.py` and [docs/WORKLOAD-CONTRACT.md](docs/WORKLOAD-CONTRACT.md): the static input/output contract, stage list and per-boundary tensor shapes of the pinned CenterPoint workload, derived from the config and module source with provenance hashes. Frame-dependent dimensions stay `null`; execution and memory placement stay `unknown`.
+
 ## [0.1.0-structural] - 2026-10-03
 
 ### Established

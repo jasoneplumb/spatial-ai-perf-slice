@@ -20,7 +20,7 @@ The structural smoke measurements are not a performance baseline.
 
 OpenPCDet does **not** distribute its pretrained Waymo models because of the Waymo Dataset License Agreement. This repository therefore does not fetch an unofficial checkpoint. The reference baseline requires a checkpoint that the user is entitled to use.
 
-See [docs/WORKLOAD.md](docs/WORKLOAD.md).
+See [docs/WORKLOAD.md](docs/WORKLOAD.md). The static tensor contract and stage boundaries are in [docs/WORKLOAD-CONTRACT.md](docs/WORKLOAD-CONTRACT.md).
 
 ## Environment
 
