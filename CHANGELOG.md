@@ -11,6 +11,7 @@ This project uses milestone versions to mark reproducible experimental states. A
 - `tools/scan_generator.py`: a deterministic parametric 64-beam lidar scan of a procedural street scene, with tunable sensor and scene parameters and no dataset content.
 
 - `tools/density_sweep.py` and [docs/DENSITY-SWEEP.md](docs/DENSITY-SWEEP.md): a 90-scan sweep of clutter, buildings and azimuth density, with cost-model fits tested against held-out legacy inputs.
+- `tools/nms_sweep.py` and [docs/NMS-SWEEP.md](docs/NMS-SWEEP.md): decode and rotated-NMS cost against candidate count, driven by constructed inputs independent of the weights, with GPU-busy time and CUDA runtime calls per frame.
 - `tools/pcdet_harness.py`: OpenPCDet setup shared by the inventory and sweep tools.
 
 ### Changed
@@ -20,6 +21,7 @@ This project uses milestone versions to mark reproducible experimental states. A
 ### Observations
 
 - Compared with the surface-structured parametric scan, the legacy synthetic smoke input (uniform points with no surfaces) inflates active sites at the strided sparse-backbone levels by 6–15× and model-call latency from 47 ms to 165 ms. Legacy smoke stage proportions should not be used to reason about where time goes.
+- The pinned rotated NMS runs its greedy suppression on the host CPU after a blocking device-to-host copy. Decode + NMS costs about 2 ms per frame, nearly independent of candidate count (M ≤ 500, capped by top-K). 58–82% of it is host-side and synchronization overhead (5 stream syncs, 1 blocking copy, 1 device allocation per frame).
 - Across 90 parametric scans (77k–319k points), model-call latency stays within 44–54 ms. The dense 2D part (31 ± 1 ms, independent of input) is 57–71% of it. Sparse-backbone time is predicted across inputs only by channel-weighted active sites per level, not by voxel or raw site counts.
 
 ## [0.1.0-structural] - 2026-10-03

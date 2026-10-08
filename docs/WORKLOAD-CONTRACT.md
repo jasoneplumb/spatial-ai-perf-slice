@@ -72,7 +72,7 @@ The timing boundary is the existing primary boundary: `model(batch_dict)`. Frame
 | BaseBEVBackbone | yes | yes | dense, static shape |
 | CenterHead convolutions | yes | yes | dense, static shape |
 | Decode, top-K, mask | yes | partly | fixed-size top-K, then a data-dependent mask |
-| Rotated NMS | yes | **no** | OpenPCDet custom CUDA extension |
+| Rotated NMS | yes | **no** | OpenPCDet custom CUDA extension; the overlap mask is computed on the GPU, but the greedy suppression runs on the host CPU after a blocking copy ([NMS-SWEEP.md](NMS-SWEEP.md)) |
 
 "Standard-ONNX expressible" is a judgment from the operator types. No export was attempted. It identifies where an exported graph would have to stop, or need custom operators.
 
