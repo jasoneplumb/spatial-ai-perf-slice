@@ -15,27 +15,15 @@ other target.
 import argparse
 import hashlib
 import json
-import os
 import platform
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import torch
 
-
-def load_openpcdet_cfg(root: Path, cfg_path: Path):
-    from pcdet.config import cfg, cfg_from_yaml_file
-
-    old_cwd = Path.cwd()
-    try:
-        os.chdir(root / "tools")
-        cfg_from_yaml_file(str(cfg_path), cfg)
-    finally:
-        os.chdir(old_cwd)
-    return cfg
+from pcdet_harness import Workload
 
 
 def describe(x):
@@ -150,27 +138,9 @@ def main():
     if not torch.cuda.is_available():
         raise SystemExit("CUDA GPU required")
 
-    root = Path(args.openpcdet).resolve()
-    cfg_path = Path(args.cfg).resolve()
-    sys.path.insert(0, str(root))
-
-    # Same import shim as tools/smoke_centerpoint.py: avoid executing
-    # pcdet/datasets/__init__.py and its optional dataset backends.
-    datasets_pkg = ModuleType("pcdet.datasets")
-    datasets_pkg.__path__ = [str(root / "pcdet" / "datasets")]
-    datasets_pkg.__package__ = "pcdet.datasets"
-    sys.modules.setdefault("pcdet.datasets", datasets_pkg)
-
-    import cumm.tensorview as tv
-    from spconv.utils import Point2VoxelCPU3d
-    from pcdet.models import build_network, load_data_to_gpu
+    wl = Workload(args.openpcdet, args.cfg)
+    root = wl.root
     from pcdet.models.model_utils import model_nms_utils
-
-    cfg = load_openpcdet_cfg(root, cfg_path)
-    pc_range = np.asarray(cfg.DATA_CONFIG.POINT_CLOUD_RANGE, dtype=np.float32)
-    voxel_cfg = next(x for x in cfg.DATA_CONFIG.DATA_PROCESSOR if x.NAME == "transform_points_to_voxels")
-    voxel_size = np.asarray(voxel_cfg.VOXEL_SIZE, dtype=np.float32)
-    grid_size = np.round((pc_range[3:6] - pc_range[0:3]) / voxel_size).astype(np.int64)
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -193,38 +163,22 @@ def main():
     input_desc["raw_sha256"] = sha256_array(raw)
 
     # Dataset path, outside model(): range mask, test-time shuffle (seeded), voxelize, collate.
-    mask = np.all((raw[:, :3] >= pc_range[:3]) & (raw[:, :3] < pc_range[3:6]), axis=1)
-    points = raw[mask]
-    if next(x for x in cfg.DATA_CONFIG.DATA_PROCESSOR if x.NAME == "shuffle_points").SHUFFLE_ENABLED["test"]:
-        points = points[np.random.permutation(points.shape[0])]
-
-    voxelizer = Point2VoxelCPU3d(
-        vsize_xyz=voxel_size.tolist(), coors_range_xyz=pc_range.tolist(), num_point_features=5,
-        max_num_points_per_voxel=int(voxel_cfg.MAX_POINTS_PER_VOXEL),
-        max_num_voxels=int(voxel_cfg.MAX_NUMBER_OF_VOXELS["test"]),
-    )
-    tv_voxels, tv_coords, tv_num = voxelizer.point_to_voxel(tv.from_numpy(points))
-    voxels, coords, num_points = tv_voxels.numpy().copy(), tv_coords.numpy().copy(), tv_num.numpy().copy()
-    voxel_coords = np.pad(coords, ((0, 0), (1, 0)), constant_values=0)
+    points = wl.mask_and_shuffle(raw, args.seed)
+    voxels, coords, num_points = wl.voxelize(points)
+    batch = wl.collate(voxels, coords, num_points)
 
     observed = {"points": describe(points)}
-    host = {"voxels": voxels, "voxel_num_points": num_points, "voxel_coords": voxel_coords}
+    host = {k: batch[k] for k in ("voxels", "voxel_num_points", "voxel_coords")}
     observed.update({k: describe(v) for k, v in host.items()})
     stages = [
         {"stage": "frame_load", "inside_model": False, "outputs": ["points"]},
         {"stage": "voxelize", "inside_model": False, "outputs": list(host)},
     ]
 
-    dataset = SimpleNamespace(
-        class_names=cfg.CLASS_NAMES, point_cloud_range=pc_range, voxel_size=voxel_size,
-        grid_size=grid_size, depth_downsample_factor=None,
-        point_feature_encoder=SimpleNamespace(num_point_features=5),
-    )
-    model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=dataset).cuda().eval()
+    model = wl.build_model().cuda().eval()
 
-    batch = {**host, "batch_size": 1}
     with Allocator() as a:
-        load_data_to_gpu(batch)
+        wl.to_gpu(batch)
     stages.append({"stage": "host_to_device", "inside_model": False,
                    "outputs": [f"{k}@cuda" for k in host], **a.record()})
     for k in host:
@@ -302,7 +256,7 @@ def main():
     contract = json.loads(Path(args.contract).read_text())
     checks = check_contract(observed, contract)
 
-    occ = np.bincount(num_points, minlength=int(voxel_cfg.MAX_POINTS_PER_VOXEL) + 1)[1:]
+    occ = np.bincount(num_points, minlength=wl.max_points_per_voxel + 1)[1:]
     V = int(voxels.shape[0])
     summary = {
         "points_in_range": int(points.shape[0]),
