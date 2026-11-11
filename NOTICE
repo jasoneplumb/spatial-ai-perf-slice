@@ -1,0 +1,8 @@
+spatial-ai-perf-slice
+Copyright 2026 Jason E. Plumb
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository contains no third-party source code, datasets or model
+weights. The projects it downloads, builds against or adapts are listed in
+THIRD_PARTY_NOTICES.md.
