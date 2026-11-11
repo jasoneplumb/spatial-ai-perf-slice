@@ -12,7 +12,7 @@ The workload is **CenterPoint (voxel/ResNet) with the Waymo configuration**, usi
 
 **fixed input -> reference output -> stage-aware timing -> profile -> optimization -> remeasurement**
 
-The study is hardware-neutral by design: it contains no vendor-specific code or SDKs, and nothing that is not publicly reproducible.
+The workload definition and measurement protocol are meant to carry over to other hardware. The reference measurements themselves come from one NVIDIA GPU and its CUDA stack. The repository contains no proprietary SDK code and nothing that is not publicly reproducible.
 
 ## Status
 
