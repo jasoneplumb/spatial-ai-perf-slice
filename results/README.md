@@ -55,7 +55,7 @@ results/
 
 Raw result artifacts are working evidence and should normally remain local.
 
-Promote only small, reviewed summaries into version control after checking that they contain no restricted dataset content or confidential target information. Durable conclusions belong in places such as:
+Promote only small, reviewed summaries into version control after checking that they contain no restricted dataset content and nothing that cannot be shared publicly. Durable conclusions belong in places such as:
 
 - `CHANGELOG.md`
 - milestone documents under `docs/`

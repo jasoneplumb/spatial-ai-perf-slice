@@ -12,7 +12,7 @@ The workload is **CenterPoint (voxel/ResNet) with the Waymo configuration**, usi
 
 **fixed input -> reference output -> stage-aware timing -> profile -> optimization -> remeasurement**
 
-No vendor-specific hardware, SDK, or confidential material belongs in this repository.
+The study is hardware-neutral by design: it contains no vendor-specific code or SDKs, and nothing that is not publicly reproducible.
 
 ## Status
 

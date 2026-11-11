@@ -13,6 +13,7 @@ This project uses milestone versions to mark reproducible experimental states. A
 
 - CI pins its actions to commit SHAs, cancels superseded runs, and can be dispatched by hand.
 - Release notes moved from `docs/` to `.github/release-notes/`.
+- README improvements: the README and `results/README.md` state the hardware-neutral, publicly reproducible scope directly.
 
 ## [0.2.0] - 2026-11-11
 
