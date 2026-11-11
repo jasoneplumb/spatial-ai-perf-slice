@@ -16,7 +16,7 @@ The workload definition and measurement protocol are meant to carry over to othe
 
 ## Status
 
-**Release `v0.2.0`.** The workload's stage boundaries are characterized without licensed data:
+**Release `v0.2.1`**, a maintenance release of the 0.2 milestone. The workload's stage boundaries are characterized without licensed data:
 - a verified tensor contract
 - a license-free parametric lidar generator
 - density, NMS and CPU sweeps with cost models tested on held-out inputs

@@ -2,18 +2,20 @@
 
 This project uses milestone versions to mark reproducible experimental states. A milestone version does not imply that the workload is yet suitable for cross-platform performance comparison.
 
-## [Unreleased]
+## [0.2.1] - 2026-11-11
+
+Maintenance release. No tool, script behavior or measurement changed; the 0.2 results stand as published.
 
 ### Added
 
-- Release workflow: pushing a plain `vX.Y.Z` tag re-runs the release checks against the tagged tree, checks the tag against the changelog, and publishes a GitHub release from `.github/release-notes/<tag>.md`. It can also be dispatched by hand for an existing tag.
-- Claude review workflow, triggered by the `review-requested` label on a pull request.
+- Release workflow: pushing a plain `vX.Y.Z` tag re-runs the release checks against the tagged tree, checks the tag against the changelog, and publishes a GitHub release from `.github/release-notes/<tag>.md`. It can also be dispatched by hand for an existing tag (#2).
+- Claude review workflow, triggered by the `review-requested` label on a pull request (#2).
 
 ### Changed
 
-- CI pins its actions to commit SHAs, cancels superseded runs, and can be dispatched by hand.
-- Release notes moved from `docs/` to `.github/release-notes/`.
-- README improvements: the README and `results/README.md` state the scope directly: a portable protocol, reference measurements from one NVIDIA GPU, and nothing that is not publicly reproducible.
+- CI pins its actions to commit SHAs, cancels superseded runs, and can be dispatched by hand (#2).
+- Release notes moved from `docs/` to `.github/release-notes/` (#2).
+- README improvements: the README and `results/README.md` state the scope directly: a portable protocol, reference measurements from one NVIDIA GPU, and nothing that is not publicly reproducible (#4).
 
 ## [0.2.0] - 2026-11-11
 
