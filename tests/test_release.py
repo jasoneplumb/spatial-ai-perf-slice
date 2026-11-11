@@ -165,10 +165,13 @@ class RepositoryInvariants(unittest.TestCase):
         self.assertIn(pin, read("README.md"))
 
     def test_release_version_is_consistent(self):
-        # The newest changelog entry is the release version: plain semver, named in the README,
-        # and never written with a suffix anywhere in the documentation.
-        version = re.search(r"^## \[([^\]]+)\]", read("CHANGELOG.md"), re.MULTILINE).group(1)
+        # The newest released changelog entry (an "Unreleased" section may sit above it) is the
+        # release version: plain semver, named in the README, with release notes for the release
+        # workflow, and never written with a suffix anywhere in the documentation.
+        headings = re.findall(r"^## \[([^\]]+)\]", read("CHANGELOG.md"), re.MULTILINE)
+        version = next(h for h in headings if h != "Unreleased")
         self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertTrue((ROOT / ".github" / "release-notes" / f"v{version}.md").is_file())
         self.assertIn(f"`v{version}`", read("README.md"))
         for path in MARKDOWN:
             with self.subTest(path=path):

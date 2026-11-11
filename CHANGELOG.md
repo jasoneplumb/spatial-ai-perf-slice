@@ -2,6 +2,18 @@
 
 This project uses milestone versions to mark reproducible experimental states. A milestone version does not imply that the workload is yet suitable for cross-platform performance comparison.
 
+## [Unreleased]
+
+### Added
+
+- Release workflow: pushing a plain `vX.Y.Z` tag re-runs the release checks against the tagged tree, checks the tag against the changelog, and publishes a GitHub release from `.github/release-notes/<tag>.md`. It can also be dispatched by hand for an existing tag.
+- Claude review workflow, triggered by the `review-requested` label on a pull request.
+
+### Changed
+
+- CI pins its actions to commit SHAs, cancels superseded runs, and can be dispatched by hand.
+- Release notes moved from `docs/` to `.github/release-notes/`.
+
 ## [0.2.0] - 2026-11-11
 
 First public release. Boundary characterization without licensed data; see [docs/MILESTONE-0.2.md](docs/MILESTONE-0.2.md). The measurements were completed on 2026-10-07 and are unchanged by the release preparation.

@@ -1,0 +1,90 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  review:
+    if: >-
+      github.event.label.name == 'review-requested'
+      && contains(github.event.pull_request.labels.*.name, 'review-requested')
+    # Concurrency on the job, not the workflow: a workflow-level group lets an
+    # unrelated skipped run cancel the real labeled review.
+    concurrency:
+      group: review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    env:
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Timestamp before the review so the tripwire counts only this run's comments.
+      - name: Mark review start
+        id: start
+        run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # Agent mode does not inject PR context; the prompt must name repo and PR.
+      - uses: anthropics/claude-code-action@459ad358ae43fea66bfefd0a1f8d840b4b9791fb # v1.0.194
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ env.PR }}
+
+            Review the diff:
+
+                git diff $(git merge-base origin/mainline HEAD) HEAD
+
+            Review it for:
+            - Logic errors and edge cases in the tools, scripts and tests
+            - Measured-vs-assumed: results from synthetic input or random
+              weights presented as a performance baseline or benchmark, or a
+              result file that is not marked `"valid_for_baseline": false`
+            - Validation claims (README, CHANGELOG, docs/) that the change does
+              not actually support, especially any claim of GPU validation
+            - Restricted content: datasets, checkpoints, exported models,
+              generated results, third-party source, or anything derived from
+              Waymo data entering version control
+            - Licensing: new dependencies or adapted third-party logic missing
+              from THIRD_PARTY_NOTICES.md
+            - Reproducibility: changed pins (OpenPCDet commit, PyTorch, spconv,
+              ONNX) that the docs and scripts do not state consistently, and
+              changes to tools/scan_generator.py that alter its output for
+              existing parameters
+            - Documentation that no longer matches what the scripts do
+
+            Focus on substantive issues. Skip formatting and naming bikeshedding.
+
+            Use `mcp__github_inline_comment__create_inline_comment` (with
+            `confirmed: true`) for line-specific findings. Post a summary with
+            `gh pr comment` whose first line is
+
+                🔍 Review verdict: N findings
+
+            — post it even when N is 0. Only post GitHub comments.
+          claude_args: '--model claude-sonnet-5 --max-turns 40 --allowedTools "Read,Grep,Glob,Bash(gh:*),Bash(git:*),mcp__github_inline_comment__create_inline_comment"'
+
+      # A "successful" review that posted nothing is a vacuous gate.
+      - name: Fail if the review posted nothing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SINCE: ${{ steps.start.outputs.ts }}
+        run: |
+          issue=$(gh api "repos/${{ github.repository }}/issues/$PR/comments?per_page=100" \
+            --jq "[.[] | select(.created_at >= \"$SINCE\")] | length")
+          inline=$(gh api "repos/${{ github.repository }}/pulls/$PR/comments?per_page=100" \
+            --jq "[.[] | select(.created_at >= \"$SINCE\")] | length")
+          echo "comments posted by this run — summary: $issue, inline: $inline"
+          if [ "$issue" -eq 0 ] && [ "$inline" -eq 0 ]; then
+            echo "::error::Review run posted no comments — vacuous review gate."
+            exit 1
+          fi
