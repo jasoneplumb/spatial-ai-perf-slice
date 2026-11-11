@@ -23,7 +23,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-RELEASE_VERSION = "0.2.0"
 # Recorded in docs/BOUNDARY-INVENTORY.md (seed-7 scan, default parameters; waymo-like preset total).
 SEED7_SHA256 = "c9d636f325787e6c2a90b6b70bb10bfe5e1a64f8c161544a8fd3bae9c4c75459"
 SEED7_POINTS = 158436
@@ -43,9 +42,14 @@ SYNTHETIC_RESULT_TOOLS = {
 
 
 def tracked_files():
-    out = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-z"], text=True)
-    # A file deleted in the working tree but not yet committed is still listed.
-    return [p for p in out.split("\0") if p and (ROOT / p).is_file()]
+    """Tracked files in a Git checkout; every file present in a source archive."""
+    if (ROOT / ".git").exists() and shutil.which("git"):
+        out = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-z"], text=True)
+        # A file deleted in the working tree but not yet committed is still listed.
+        return [p for p in out.split("\0") if p and (ROOT / p).is_file()]
+    skip = {"__pycache__", ".venv", ".conda-env"}
+    return sorted(p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*")
+                  if p.is_file() and not skip.intersection(p.relative_to(ROOT).parts))
 
 
 TRACKED = tracked_files()
@@ -161,12 +165,14 @@ class RepositoryInvariants(unittest.TestCase):
         self.assertIn(pin, read("README.md"))
 
     def test_release_version_is_consistent(self):
-        first = re.search(r"^## \[([^\]]+)\]", read("CHANGELOG.md"), re.MULTILINE).group(1)
-        self.assertEqual(first, RELEASE_VERSION)
-        self.assertIn(f"`v{RELEASE_VERSION}`", read("README.md"))
+        # The newest changelog entry is the release version: plain semver, named in the README,
+        # and never written with a suffix anywhere in the documentation.
+        version = re.search(r"^## \[([^\]]+)\]", read("CHANGELOG.md"), re.MULTILINE).group(1)
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertIn(f"`v{version}`", read("README.md"))
         for path in MARKDOWN:
             with self.subTest(path=path):
-                self.assertIsNone(re.search(re.escape(RELEASE_VERSION) + r"-[A-Za-z]", read(path)))
+                self.assertIsNone(re.search(re.escape(version) + r"-[A-Za-z]", read(path)))
 
     def test_synthetic_results_are_never_marked_as_baselines(self):
         marked = set()

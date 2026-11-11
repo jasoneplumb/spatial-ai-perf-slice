@@ -35,15 +35,26 @@ bash ./scripts/setup-openpcdet.sh
 bash ./scripts/smoke-centerpoint.sh
 ```
 
-The smoke test and every study in the top-level README run from here with synthetic input and random weights. No dataset or checkpoint is needed.
+The smoke test and the studies in the top-level README run from here with synthetic input and random weights. No dataset or checkpoint is needed. The two ONNX export studies (`tools/export_dense_onnx.py`, `tools/pillar_variant.py`) also need:
+
+```bash
+bash ./scripts/setup-onnx.sh
+```
+
+The `scripts/*.sh` launchers activate the environment themselves. To run tools directly, either call `.conda-env/bin/python` or activate it first:
+
+```bash
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate ./.conda-env
+```
 
 ## 4. If something fails
 
-Verify these from Ubuntu:
+Verify these from Ubuntu, with the environment activated:
 
 ```bash
 nvidia-smi
-python --version
+python --version        # expect 3.11
 git --version
 ```
 

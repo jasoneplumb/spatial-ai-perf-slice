@@ -1,6 +1,6 @@
 # Third-party notices
 
-This repository is licensed under Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)). It **does not redistribute** any third-party source code, dataset, model weight or binary. The setup scripts download the software below onto the user's machine, where each component stays under its own license.
+This repository is licensed under Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)). It **does not redistribute** any third-party source file, dataset, model weight or binary; the only third-party-derived code is the adapted OpenPCDet logic listed below. The setup scripts download the software below onto the user's machine, where each component stays under its own license.
 
 This file is an engineering inventory, not legal advice. Licenses were read from each project's repository in November 2026. Transitive dependencies are not listed; check them in the installed environment (for example with `pip-licenses`).
 
@@ -30,7 +30,7 @@ Installed by the setup scripts; none is committed here.
 | --- | --- | --- | --- |
 | [PyTorch](https://github.com/pytorch/pytorch) | 2.7.0 (CUDA 12.6 wheel) | BSD-3-Clause; the wheel bundles NVIDIA CUDA runtime libraries under NVIDIA's license terms | `scripts/setup-wsl.sh` |
 | [torchvision](https://github.com/pytorch/vision) | 0.22.0 | BSD-3-Clause | `scripts/setup-wsl.sh` |
-| [NumPy](https://github.com/numpy/numpy) | as resolved by pip | BSD-3-Clause | dependency of PyTorch; the only dependency of `tools/scan_generator.py` and the tests |
+| [NumPy](https://github.com/numpy/numpy) | as resolved by pip | BSD-3-Clause | `scripts/setup-wsl.sh`, as a dependency of torchvision; the only dependency of `tools/scan_generator.py` and the tests |
 | [spconv](https://github.com/traveller59/spconv) | 2.3.8 (`spconv-cu126`) | Apache-2.0 | `scripts/setup-openpcdet.sh` |
 | [cumm](https://github.com/FindDefinition/cumm) | as required by spconv | Apache-2.0 | dependency of spconv |
 | NVIDIA CUDA Toolkit | 12.6 (conda, `nvidia` channel) | NVIDIA Software License Agreement (proprietary) | `scripts/setup-openpcdet.sh` |
@@ -46,7 +46,7 @@ The NVIDIA components are proprietary. Installing them means accepting NVIDIA's 
 
 - **Waymo Open Dataset.** Waymo data, and model weights trained on it, fall under the Waymo Dataset License Agreement for Non-Commercial Use. This repository contains no Waymo data, nothing derived from Waymo data, and no pretrained checkpoint. OpenPCDet does not distribute its Waymo checkpoints either.
 - **Bringing your own.** `tools/freeze_frame.py`, `tools/profile_single_frame.py` and the `--points-npy` options can read Waymo frames or a trained checkpoint that you supply. Whether you may use them is for you to establish. Anything produced from them (frozen frames, predictions, traces) inherits those terms and must stay out of version control.
-- **Published sensor figures.** `tools/scan_generator.py` takes a few sensor parameters (vertical field of view, range limits, average points per frame) from the Waymo Open Dataset paper (Sun et al., "Scalability in Perception for Autonomous Driving: Waymo Open Dataset", CVPR 2020, arXiv:1912.04838). Each is marked "Published" or "Assumption" in `PARAM_NOTES`. They are cited facts, not dataset content. The `waymo-like` preset name is descriptive only.
+- **Published sensor figures.** `tools/scan_generator.py` takes a few sensor parameters (vertical field of view, range limits, average points per frame) from the Waymo Open Dataset paper (Sun et al., "Scalability in Perception for Autonomous Driving: Waymo Open Dataset", CVPR 2020, arXiv:1912.04838). Those are marked "Published" in `PARAM_NOTES`; the other documented parameters are marked as assumptions or design choices. They are cited facts, not dataset content. The `waymo-like` preset name is descriptive only.
 - **Generated artifacts.** The ONNX files that the export tools write carry random weights and the OpenPCDet architecture. They are written to `artifacts/`, which Git ignores.
 
 ## Trademarks

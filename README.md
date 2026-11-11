@@ -58,7 +58,7 @@ The workload definition and measurement protocol are in [docs/WORKLOAD.md](docs/
 
 ## Quick check without a GPU
 
-Needs only Python 3.11 or newer, numpy and git:
+Needs only Python 3.11 or newer and numpy. In a Git checkout the repository checks cover the tracked files; in a source archive they cover every file present:
 
 ```bash
 python -m pip install numpy
@@ -66,7 +66,7 @@ python -m unittest discover -s tests -v
 python tools/scan_generator.py --seed 7 --out results/scans/scan_seed7.npy
 ```
 
-The tests check Python and shell syntax, that the scan generator is deterministic and reproduces the documented seed-7 scan (`points_sha256` `c9d636f3…`), and repository invariants: no datasets, checkpoints or generated artifacts tracked, consistent pins and versions, and no broken documentation references. CI runs the same command.
+The tests check Python and shell syntax, that the scan generator is deterministic and reproduces the documented seed-7 scan (`points_sha256` `c9d636f3…`), and repository invariants: no datasets, checkpoints or generated artifacts tracked, consistent pins and versions, and no broken documentation references. CI runs the same command with numpy 2.4.6 on Linux; the hash was also reproduced with numpy 2.5.4 on macOS. Another numpy version could in principle change the generated bits, which the hash test would report.
 
 ## Environment
 

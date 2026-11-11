@@ -10,8 +10,7 @@ fi
 
 echo "OpenPCDet commit: $(git -C "$ROOT/third_party/OpenPCDet" rev-parse HEAD)"
 echo
-echo "Next:"
-echo "  1. Install OpenPCDet using its INSTALL.md for your CUDA/PyTorch environment."
-echo "  2. Prepare Waymo data according to OpenPCDet docs."
-echo "  3. Obtain a checkpoint compatible with tools/cfgs/waymo_models/centerpoint.yaml."
-echo "  4. Run tools/freeze_frame.py, then tools/profile_single_frame.py."
+echo "scripts/setup-openpcdet.sh pins, patches and builds this clone."
+echo "The smoke test and the studies need no dataset or checkpoint."
+echo "The optional reference baseline (tools/freeze_frame.py, tools/profile_single_frame.py)"
+echo "needs Waymo data and a compatible checkpoint that you are entitled to use; neither is included."
