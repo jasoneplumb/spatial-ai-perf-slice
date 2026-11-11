@@ -21,25 +21,25 @@ Then:
 
 ```bash
 cd ~/src/spatial-ai-perf-slice
-./scripts/setup-wsl.sh
+bash ./scripts/setup-wsl.sh
 ```
 
-This verifies that WSL can see the NVIDIA GPU with `nvidia-smi`, installs basic build/Python prerequisites, and creates `.venv`.
+This verifies that WSL can see the NVIDIA GPU with `nvidia-smi`, installs basic build prerequisites and Miniforge, and creates the conda environment `.conda-env` with the pinned PyTorch.
 
 ## 3. Reference-workload setup
 
-Activate the environment and clone the OpenPCDet reference:
+Install spconv and the CUDA toolkit, then clone, pin and build the OpenPCDet reference:
 
 ```bash
-source .venv/bin/activate
-./scripts/setup.sh
+bash ./scripts/setup-openpcdet.sh
+bash ./scripts/smoke-centerpoint.sh
 ```
 
-At that point the remaining external prerequisites are intentionally explicit: a CUDA-compatible PyTorch/OpenPCDet environment, prepared Waymo data, and a CenterPoint checkpoint compatible with `tools/cfgs/waymo_models/centerpoint.yaml`.
+The smoke test and every study in the top-level README run from here with synthetic input and random weights. No dataset or checkpoint is needed.
 
-## 4. First useful checkpoint
+## 4. If something fails
 
-Before downloading/preparing Waymo, verify these from Ubuntu:
+Verify these from Ubuntu:
 
 ```bash
 nvidia-smi
@@ -49,11 +49,9 @@ git --version
 
 If `nvidia-smi` shows the NVIDIA GPU, the Windows/WSL boundary is working. Do not install a separate Linux NVIDIA display driver inside WSL.
 
-## 5. Run the slice
+## 5. Reference baseline (not part of this release)
 
-After OpenPCDet, Waymo and the checkpoint are ready, use the commands in the top-level README to freeze one frame and collect the baseline.
-
-The first experimental milestone is the appearance of:
+The baseline needs prepared Waymo data and a CenterPoint checkpoint compatible with `tools/cfgs/waymo_models/centerpoint.yaml`, both of which you must be entitled to use. Neither is included. With them, use the commands in the top-level README to freeze one frame and collect the baseline, which produces:
 
 - `results/baseline/timing.json`
 - `results/baseline/operators.txt`

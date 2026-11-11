@@ -9,4 +9,4 @@ wsl --update
 Write-Host ""
 Write-Host "After Ubuntu opens, create your Linux username/password."
 Write-Host "Then clone spatial-ai-perf-slice inside your Linux home directory and run:"
-Write-Host "  ./scripts/setup-wsl.sh"
+Write-Host "  bash ./scripts/setup-wsl.sh"

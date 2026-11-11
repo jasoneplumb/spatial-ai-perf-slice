@@ -1,7 +1,7 @@
 # Milestone 0.2: Boundary characterization without licensed data
 
 **Date:** 2026-10-07
-**Milestone name:** `v0.2.0-boundaries`
+**Release:** `v0.2.0`
 **Reference implementation commit before milestone documentation:** `b30c74f362993b606c94b081a67ad27cf9c52ff5`
 
 ## Why this milestone took a different route

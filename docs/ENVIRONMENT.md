@@ -7,7 +7,7 @@ Target development host: Windows 11 + WSL2 + RTX 2060 6 GiB.
 - Windows NVIDIA driver: existing 581.15 (keep it)
 - WSL2: existing installation
 - Ubuntu: current WSL Ubuntu
-- Python: Ubuntu python3 in repository-local .venv
+- Python: 3.11 from Miniforge, in the repository-local conda environment `.conda-env`
 - PyTorch: 2.7.0
 - torchvision: 0.22.0
 - PyTorch CUDA runtime: 12.6
@@ -18,13 +18,14 @@ ceiling, not a requirement to use a CUDA 13 toolkit.
 Run:
 
 ```bash
-./scripts/setup-wsl.sh
+bash ./scripts/setup-wsl.sh
 ```
 
 Then:
 
 ```bash
-source .venv/bin/activate
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate ./.conda-env
 python tools/check_environment.py
 ```
 
@@ -35,11 +36,15 @@ Expected on the current machine: RTX 2060, about 6 GiB VRAM, compute capability
 
 Do not install a Linux NVIDIA display driver in WSL.
 
-The CUDA development toolkit is a separate decision from the PyTorch runtime.
-OpenPCDet requires compiled CUDA extensions, while upstream spconv 2.x currently
-publishes Linux CUDA packages through CUDA 12.0. Therefore the repo deliberately
-does not pretend that a CUDA-12.6 PyTorch wheel implies a matching spconv-cu126
-package.
+The CUDA development toolkit is separate from the PyTorch runtime. OpenPCDet
+requires compiled CUDA extensions, so after the base check succeeds run:
 
-After the base check succeeds, pin the OpenPCDet commit, toolkit and spconv
-combination together and verify it with the CenterPoint reference workload.
+```bash
+bash ./scripts/setup-openpcdet.sh
+```
+
+It installs `spconv-cu126==2.3.8` and the CUDA 12.6 toolkit (nvcc) into
+`.conda-env`, clones OpenPCDet into `third_party/`, checks out the pinned
+commit `233f849829b6ac19afb8af8837a0246890908755`, applies a one-keyword
+compatibility patch for spconv 2.3.8, and builds the extensions. Verify the
+result with `bash ./scripts/smoke-centerpoint.sh`.

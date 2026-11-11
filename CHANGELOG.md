@@ -2,9 +2,18 @@
 
 This project uses milestone versions to mark reproducible experimental states. A milestone version does not imply that the workload is yet suitable for cross-platform performance comparison.
 
-## [0.2.0-boundaries] - 2026-10-07
+## [0.2.0] - 2026-11-11
 
-Boundary characterization without licensed data. See [docs/MILESTONE-0.2.md](docs/MILESTONE-0.2.md).
+First public release. Boundary characterization without licensed data; see [docs/MILESTONE-0.2.md](docs/MILESTONE-0.2.md). The measurements were completed on 2026-10-07 and are unchanged by the release preparation.
+
+Nothing in this release is a performance baseline: inputs are synthetic, weights are random, and all timings come from one RTX 2060 / desktop x86-64 machine. No Waymo data or pretrained checkpoint is included.
+
+### Release preparation
+
+- Licensed the repository under Apache-2.0 (`LICENSE`, `NOTICE`) and added [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): upstream projects, dependencies, their licenses, and the Waymo data constraint.
+- Added `tests/test_release.py` and a CI workflow. They need no GPU and check Python and shell syntax, scan-generator determinism against the documented seed-7 hash, and repository invariants (nothing restricted tracked, consistent OpenPCDet pin and version strings, resolvable documentation references). They do not run the CUDA tools.
+- README: stated what the results are and are not, added a GPU-free quick check, the order in which the studies must be reproduced, and the limits of the setup scripts' reproducibility.
+- Corrected stale setup instructions in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) and [docs/WINDOWS_WSL.md](docs/WINDOWS_WSL.md), which still described a `.venv` that the setup script replaced with `.conda-env`.
 
 ### Added
 
