@@ -1,5 +1,11 @@
 # Spatial AI Performance Slice
 
+[![ci](https://github.com/jasoneplumb/spatial-ai-perf-slice/actions/workflows/ci.yml/badge.svg?branch=mainline)](https://github.com/jasoneplumb/spatial-ai-perf-slice/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/jasoneplumb/spatial-ai-perf-slice)](https://github.com/jasoneplumb/spatial-ai-perf-slice/releases)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.11-blue)](docs/ENVIRONMENT.md)
+[![status](https://img.shields.io/badge/results-structural%20profiling%2C%20not%20a%20benchmark-orange)](#what-the-results-are-and-are-not)
+
 A reproducible, measurement-first performance study of a single-frame LiDAR 3D-detection workload.
 
 The workload is **CenterPoint (voxel/ResNet) with the Waymo configuration**, using OpenPCDet as the reference implementation. The purpose is not to reimplement CenterPoint. It is to establish a portable performance slice:
