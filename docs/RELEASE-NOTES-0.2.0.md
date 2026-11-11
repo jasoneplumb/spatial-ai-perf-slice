@@ -29,7 +29,7 @@ First public release: a measurement-first study of where one frame of LiDAR 3D d
 - The dense segment exports as a fully static ONNX graph (85.78 GMAC) once runtime-computed pads are folded.
 - The pillar variant removes the sparse stage and exports whole, at 2.6× the dense work and about 90 ms.
 
-Details and conditions are in [MILESTONE-0.2.md](MILESTONE-0.2.md) and the per-study write-ups.
+Details and conditions are in `docs/MILESTONE-0.2.md` and the per-study write-ups under `docs/`.
 
 ## Limitations
 
